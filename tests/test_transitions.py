@@ -132,7 +132,7 @@ def test_direction_by_180_discrete(on_success, on_failure):
 
 
 def test_direction_by_180_over_time(on_success, on_failure):
-    """direction.by(180).over(300) reverses direction smoothly"""
+    """direction.by(180).over(300) reverses via slerp arc (auto-detected)"""
     setup()
     r = rig()
     r.left_stick.to(1, 0).run()
@@ -143,8 +143,10 @@ def test_direction_by_180_over_time(on_success, on_failure):
         def check_mid():
             try:
                 pos = r.state.left_stick
-                # Mid-rotation at ~90 degrees: should be roughly (0, 1)
-                assert pos.x < 0.8, f"Expected x decreasing mid-rotation, got {pos.x}"
+                # Slerp rotates through arc: at ~90 deg, should have y > 0 and magnitude ~1
+                mag = (pos.x ** 2 + pos.y ** 2) ** 0.5
+                assert mag > 0.7, f"Expected magnitude maintained during slerp, got {mag}"
+                assert pos.y > 0.3, f"Expected y > 0 mid-arc (slerp through +y), got {pos.y}"
             except Exception as e:
                 teardown()
                 on_failure(str(e))
@@ -168,7 +170,7 @@ def test_direction_by_180_over_time(on_success, on_failure):
 
 
 def test_direction_by_90_over_time(on_success, on_failure):
-    """direction.by(90).over(300) rotates smoothly"""
+    """direction.by(90).over(300) rotates smoothly via slerp"""
     setup()
     r = rig()
     r.left_stick.to(1, 0).run()

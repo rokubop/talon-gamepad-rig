@@ -848,6 +848,16 @@ class ActiveBuilder:
         for stage, callback in config.then_callbacks:
             self.lifecycle.add_callback(stage, callback)
 
+        # Auto-default to slerp for direction rotation (lerp collapses through zero at 180°)
+        if (config.subproperty == "direction" and
+            config.operator in ("by", "add") and
+            config.over_ms is not None and
+            config.over_ms > 0):
+            if config.over_interpolation == "lerp":
+                config.over_interpolation = "slerp"
+            if config.revert_interpolation == "lerp":
+                config.revert_interpolation = "slerp"
+
         # Calculate base and target values
         if config.operator == "to":
             self.base_value = self._get_current_or_base_value()
