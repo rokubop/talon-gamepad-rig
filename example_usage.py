@@ -14,14 +14,14 @@ def test_basic_stick():
     
     # Move stick to right
     print("  Moving left stick to right (1, 0)")
-    gamepad.left_thumb.to(1, 0)
+    gamepad.left_stick.to(1, 0)
     
     # Wait a bit
     time.sleep(1)
     
     # Center stick
     print("  Centering stick")
-    gamepad.left_thumb.to(0, 0)
+    gamepad.left_stick.to(0, 0)
     
     print("✓ Basic stick test complete")
 
@@ -33,14 +33,14 @@ def test_smooth_transition():
     
     # Smooth movement over 1 second
     print("  Moving left stick to right over 1 second")
-    gamepad.left_thumb.to(1, 0).over(1000)
+    gamepad.left_stick.to(1, 0).over(1000)
     
     # Wait for completion
     time.sleep(1.5)
     
     # Smooth return to center
     print("  Returning to center over 500ms")
-    gamepad.left_thumb.to(0, 0).over(500)
+    gamepad.left_stick.to(0, 0).over(500)
     
     time.sleep(1)
     print("✓ Smooth transition test complete")
@@ -71,7 +71,7 @@ def test_stop():
     
     # Set some values
     print("  Setting stick and trigger values")
-    gamepad.left_thumb.to(1, 0)
+    gamepad.left_stick.to(1, 0)
     gamepad.left_trigger.to(0.5)
     
     time.sleep(0.5)

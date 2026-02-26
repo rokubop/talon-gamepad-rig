@@ -11,6 +11,21 @@ import time
 from typing import Optional, Any, Union, TYPE_CHECKING
 from talon import cron
 from .core import Vec2, is_vec2, clamp_stick_vec2, clamp_trigger_value, clamp_stick_value, EPSILON
+
+_cron = cron
+
+
+def _set_test_apis(cron_mod=None):
+    """Swap cron implementation for testing."""
+    global _cron
+    if cron_mod is not None:
+        _cron = cron_mod
+
+
+def _reset_test_apis():
+    """Restore real implementations."""
+    global _cron
+    _cron = cron
 from .layer_group import LayerGroup
 from .lifecycle import Lifecycle, LifecyclePhase
 from .contracts import BuilderConfig, ConfigError, LayerType, validate_timing
@@ -25,8 +40,8 @@ class GamepadState:
 
     def __init__(self):
         # Base state (baked values) - neutral is (0, 0) for sticks, 0 for triggers
-        self._base_left_thumb: Vec2 = Vec2(0, 0)
-        self._base_right_thumb: Vec2 = Vec2(0, 0)
+        self._base_left_stick: Vec2 = Vec2(0, 0)
+        self._base_right_stick: Vec2 = Vec2(0, 0)
         self._base_left_trigger: float = 0.0
         self._base_right_trigger: float = 0.0
 
@@ -37,7 +52,7 @@ class GamepadState:
         self._layer_orders: dict[str, int] = {}
 
         # Frame loop
-        self._frame_loop_job: Optional[cron.CronJob] = None
+        self._frame_loop_job: Optional[Any] = None
         self._last_frame_time: Optional[float] = None
 
         # Throttle tracking
@@ -50,7 +65,7 @@ class GamepadState:
         self._rate_builder_cache: dict[tuple, tuple['ActiveBuilder', Any]] = {}
 
         # Debounce pending builders
-        self._debounce_pending: dict[str, tuple[float, 'BuilderConfig', bool, Optional[cron.CronJob]]] = {}
+        self._debounce_pending: dict[str, tuple[float, 'BuilderConfig', bool, Optional[Any]]] = {}
 
         # Stop callbacks
         self._stop_callbacks: list = []
@@ -58,8 +73,8 @@ class GamepadState:
     def __repr__(self) -> str:
         lines = [
             "GamepadState:",
-            f"  left_thumb = ({self.left_thumb.x:.2f}, {self.left_thumb.y:.2f})",
-            f"  right_thumb = ({self.right_thumb.x:.2f}, {self.right_thumb.y:.2f})",
+            f"  left_stick = ({self.left_stick.x:.2f}, {self.left_stick.y:.2f})",
+            f"  right_stick = ({self.right_stick.x:.2f}, {self.right_stick.y:.2f})",
             f"  left_trigger = {self.left_trigger:.2f}",
             f"  right_trigger = {self.right_trigger:.2f}",
             f"  layers = {list(self._layer_groups.keys())}",
@@ -101,13 +116,13 @@ class GamepadState:
     # ========================================================================
 
     @property
-    def left_thumb(self) -> Vec2:
+    def left_stick(self) -> Vec2:
         """Get current left stick position (base + all layers)"""
         lt, _, _, _ = self._compute_current_state()
         return clamp_stick_vec2(lt)
 
     @property
-    def right_thumb(self) -> Vec2:
+    def right_stick(self) -> Vec2:
         """Get current right stick position (base + all layers)"""
         _, rt, _, _ = self._compute_current_state()
         return clamp_stick_vec2(rt)
@@ -138,12 +153,12 @@ class GamepadState:
         if transition_ms is not None and transition_ms > 0:
             # Smooth stop: revert all layers and base to neutral
             # Create revert builders for any non-neutral base values
-            if (self._base_left_thumb.x != 0 or self._base_left_thumb.y != 0):
+            if (self._base_left_stick.x != 0 or self._base_left_stick.y != 0):
                 from .builder import GamepadBuilder
                 b = GamepadBuilder(self)
-                b.config.layer_name = "base.left_thumb"
+                b.config.layer_name = "base.left_stick"
                 b.config.layer_type = LayerType.BASE
-                b.config.property = "left_thumb"
+                b.config.property = "left_stick"
                 b.config.operator = "to"
                 b.config.value = (0, 0)
                 b.config.mode = "override"
@@ -151,12 +166,12 @@ class GamepadState:
                 b.config.over_easing = easing
                 b.run()
 
-            if (self._base_right_thumb.x != 0 or self._base_right_thumb.y != 0):
+            if (self._base_right_stick.x != 0 or self._base_right_stick.y != 0):
                 from .builder import GamepadBuilder
                 b = GamepadBuilder(self)
-                b.config.layer_name = "base.right_thumb"
+                b.config.layer_name = "base.right_stick"
                 b.config.layer_type = LayerType.BASE
-                b.config.property = "right_thumb"
+                b.config.property = "right_stick"
                 b.config.operator = "to"
                 b.config.value = (0, 0)
                 b.config.mode = "override"
@@ -199,15 +214,15 @@ class GamepadState:
             return
 
         # Instant stop
-        self._base_left_thumb = Vec2(0, 0)
-        self._base_right_thumb = Vec2(0, 0)
+        self._base_left_stick = Vec2(0, 0)
+        self._base_right_stick = Vec2(0, 0)
         self._base_left_trigger = 0.0
         self._base_right_trigger = 0.0
 
         # Cancel debounces
         for key, (_, _, _, cron_job) in self._debounce_pending.items():
             if cron_job is not None:
-                cron.cancel(cron_job)
+                _cron.cancel(cron_job)
         self._debounce_pending.clear()
 
         # Clear all layers
@@ -357,28 +372,28 @@ class GamepadState:
             prop = builder.config.property
             subprop = builder.config.subproperty
 
-            if prop == "left_thumb":
+            if prop == "left_stick":
                 if subprop is None:
-                    group.accumulated_value = self._base_left_thumb.copy()
+                    group.accumulated_value = self._base_left_stick.copy()
                 elif subprop == "magnitude":
-                    group.accumulated_value = self._base_left_thumb.magnitude()
+                    group.accumulated_value = self._base_left_stick.magnitude()
                 elif subprop == "direction":
-                    group.accumulated_value = self._base_left_thumb.normalized() if self._base_left_thumb.magnitude() > EPSILON else Vec2(1, 0)
+                    group.accumulated_value = self._base_left_stick.normalized() if self._base_left_stick.magnitude() > EPSILON else Vec2(1, 0)
                 elif subprop == "x":
-                    group.accumulated_value = self._base_left_thumb.x
+                    group.accumulated_value = self._base_left_stick.x
                 elif subprop == "y":
-                    group.accumulated_value = self._base_left_thumb.y
-            elif prop == "right_thumb":
+                    group.accumulated_value = self._base_left_stick.y
+            elif prop == "right_stick":
                 if subprop is None:
-                    group.accumulated_value = self._base_right_thumb.copy()
+                    group.accumulated_value = self._base_right_stick.copy()
                 elif subprop == "magnitude":
-                    group.accumulated_value = self._base_right_thumb.magnitude()
+                    group.accumulated_value = self._base_right_stick.magnitude()
                 elif subprop == "direction":
-                    group.accumulated_value = self._base_right_thumb.normalized() if self._base_right_thumb.magnitude() > EPSILON else Vec2(1, 0)
+                    group.accumulated_value = self._base_right_stick.normalized() if self._base_right_stick.magnitude() > EPSILON else Vec2(1, 0)
                 elif subprop == "x":
-                    group.accumulated_value = self._base_right_thumb.x
+                    group.accumulated_value = self._base_right_stick.x
                 elif subprop == "y":
-                    group.accumulated_value = self._base_right_thumb.y
+                    group.accumulated_value = self._base_right_stick.y
             elif prop == "left_trigger":
                 group.accumulated_value = self._base_left_trigger
             elif prop == "right_trigger":
@@ -390,7 +405,7 @@ class GamepadState:
             prop = builder.config.property
             subprop = builder.config.subproperty
 
-            if prop == "left_thumb":
+            if prop == "left_stick":
                 if subprop is None:
                     group.accumulated_value = lt.copy()
                 elif subprop == "magnitude":
@@ -401,7 +416,7 @@ class GamepadState:
                     group.accumulated_value = lt.x
                 elif subprop == "y":
                     group.accumulated_value = lt.y
-            elif prop == "right_thumb":
+            elif prop == "right_stick":
                 if subprop is None:
                     group.accumulated_value = rt.copy()
                 elif subprop == "magnitude":
@@ -445,6 +460,13 @@ class GamepadState:
             if layer in self._layer_orders:
                 del self._layer_orders[layer]
 
+        # Flush to hardware for instant operations (no frame loop runs)
+        lt, rt, ltrig, rtrig = self._compute_current_state()
+        self._apply_to_hardware(
+            clamp_stick_vec2(lt), clamp_stick_vec2(rt),
+            clamp_trigger_value(ltrig), clamp_trigger_value(rtrig),
+        )
+
     # ========================================================================
     # BEHAVIOR METHODS
     # ========================================================================
@@ -481,7 +503,7 @@ class GamepadState:
         if debounce_key in self._debounce_pending:
             _, _, _, old_cron_job = self._debounce_pending[debounce_key]
             if old_cron_job is not None:
-                cron.cancel(old_cron_job)
+                _cron.cancel(old_cron_job)
 
         target_time = time.perf_counter() + (delay_ms / 1000.0)
 
@@ -497,7 +519,7 @@ class GamepadState:
                     actual_builder = ActiveBuilder(config, self, is_base)
                     self.add_builder(actual_builder)
 
-            cron_job = cron.after(f"{delay_ms}ms", execute_debounced)
+            cron_job = _cron.after(f"{delay_ms}ms", execute_debounced)
 
         self._debounce_pending[debounce_key] = (target_time, builder.config, builder.config.is_base_layer(), cron_job)
 
@@ -608,10 +630,10 @@ class GamepadState:
         """Compute current state by applying all active layers to base.
 
         Returns:
-            (left_thumb, right_thumb, left_trigger, right_trigger)
+            (left_stick, right_stick, left_trigger, right_trigger)
         """
-        lt = self._base_left_thumb.copy()
-        rt = self._base_right_thumb.copy()
+        lt = self._base_left_stick.copy()
+        rt = self._base_right_stick.copy()
         ltrig = self._base_left_trigger
         rtrig = self._base_right_trigger
 
@@ -648,9 +670,9 @@ class GamepadState:
         mode = group.mode
         current_value = group.get_current_value()
 
-        if prop == "left_thumb":
+        if prop == "left_stick":
             lt = self._apply_stick_group(lt, current_value, mode, subprop)
-        elif prop == "right_thumb":
+        elif prop == "right_stick":
             rt = self._apply_stick_group(rt, current_value, mode, subprop)
         elif prop == "left_trigger":
             ltrig = mode_operations.apply_trigger_mode(mode, current_value, ltrig)
@@ -700,41 +722,41 @@ class GamepadState:
         prop = group.property
         subprop = group.subproperty
 
-        if prop == "left_thumb":
+        if prop == "left_stick":
             if subprop is None:
                 if is_vec2(current_value):
-                    self._base_left_thumb = clamp_stick_vec2(current_value)
+                    self._base_left_stick = clamp_stick_vec2(current_value)
                 elif isinstance(current_value, tuple):
-                    self._base_left_thumb = clamp_stick_vec2(Vec2.from_tuple(current_value))
+                    self._base_left_stick = clamp_stick_vec2(Vec2.from_tuple(current_value))
             elif subprop == "magnitude":
-                direction = self._base_left_thumb.normalized() if self._base_left_thumb.magnitude() > EPSILON else Vec2(1, 0)
-                self._base_left_thumb = direction * max(0.0, min(1.0, float(current_value)))
+                direction = self._base_left_stick.normalized() if self._base_left_stick.magnitude() > EPSILON else Vec2(1, 0)
+                self._base_left_stick = direction * max(0.0, min(1.0, float(current_value)))
             elif subprop == "direction":
-                mag = self._base_left_thumb.magnitude()
+                mag = self._base_left_stick.magnitude()
                 if is_vec2(current_value):
-                    self._base_left_thumb = current_value.normalized() * mag
+                    self._base_left_stick = current_value.normalized() * mag
             elif subprop == "x":
-                self._base_left_thumb = Vec2(clamp_stick_value(float(current_value)), self._base_left_thumb.y)
+                self._base_left_stick = Vec2(clamp_stick_value(float(current_value)), self._base_left_stick.y)
             elif subprop == "y":
-                self._base_left_thumb = Vec2(self._base_left_thumb.x, clamp_stick_value(float(current_value)))
+                self._base_left_stick = Vec2(self._base_left_stick.x, clamp_stick_value(float(current_value)))
 
-        elif prop == "right_thumb":
+        elif prop == "right_stick":
             if subprop is None:
                 if is_vec2(current_value):
-                    self._base_right_thumb = clamp_stick_vec2(current_value)
+                    self._base_right_stick = clamp_stick_vec2(current_value)
                 elif isinstance(current_value, tuple):
-                    self._base_right_thumb = clamp_stick_vec2(Vec2.from_tuple(current_value))
+                    self._base_right_stick = clamp_stick_vec2(Vec2.from_tuple(current_value))
             elif subprop == "magnitude":
-                direction = self._base_right_thumb.normalized() if self._base_right_thumb.magnitude() > EPSILON else Vec2(1, 0)
-                self._base_right_thumb = direction * max(0.0, min(1.0, float(current_value)))
+                direction = self._base_right_stick.normalized() if self._base_right_stick.magnitude() > EPSILON else Vec2(1, 0)
+                self._base_right_stick = direction * max(0.0, min(1.0, float(current_value)))
             elif subprop == "direction":
-                mag = self._base_right_thumb.magnitude()
+                mag = self._base_right_stick.magnitude()
                 if is_vec2(current_value):
-                    self._base_right_thumb = current_value.normalized() * mag
+                    self._base_right_stick = current_value.normalized() * mag
             elif subprop == "x":
-                self._base_right_thumb = Vec2(clamp_stick_value(float(current_value)), self._base_right_thumb.y)
+                self._base_right_stick = Vec2(clamp_stick_value(float(current_value)), self._base_right_stick.y)
             elif subprop == "y":
-                self._base_right_thumb = Vec2(self._base_right_thumb.x, clamp_stick_value(float(current_value)))
+                self._base_right_stick = Vec2(self._base_right_stick.x, clamp_stick_value(float(current_value)))
 
         elif prop == "left_trigger":
             self._base_left_trigger = clamp_trigger_value(float(current_value))
@@ -745,8 +767,8 @@ class GamepadState:
     def bake_all(self):
         """Bake all layers: compute current state, set as base, remove all layers"""
         lt, rt, ltrig, rtrig = self._compute_current_state()
-        self._base_left_thumb = clamp_stick_vec2(lt)
-        self._base_right_thumb = clamp_stick_vec2(rt)
+        self._base_left_stick = clamp_stick_vec2(lt)
+        self._base_right_stick = clamp_stick_vec2(rt)
         self._base_left_trigger = clamp_trigger_value(ltrig)
         self._base_right_trigger = clamp_trigger_value(rtrig)
 
@@ -758,10 +780,10 @@ class GamepadState:
         """Bake current computed value of a property into base state"""
         lt, rt, ltrig, rtrig = self._compute_current_state()
 
-        if property_name == "left_thumb":
-            self._base_left_thumb = clamp_stick_vec2(lt)
-        elif property_name == "right_thumb":
-            self._base_right_thumb = clamp_stick_vec2(rt)
+        if property_name == "left_stick":
+            self._base_left_stick = clamp_stick_vec2(lt)
+        elif property_name == "right_stick":
+            self._base_right_stick = clamp_stick_vec2(rt)
         elif property_name == "left_trigger":
             self._base_left_trigger = clamp_trigger_value(ltrig)
         elif property_name == "right_trigger":
@@ -791,13 +813,13 @@ class GamepadState:
     def _ensure_frame_loop_running(self):
         """Start frame loop if not already running"""
         if self._frame_loop_job is None:
-            self._frame_loop_job = cron.interval("16ms", self._tick_frame)
+            self._frame_loop_job = _cron.interval("16ms", self._tick_frame)
             self._last_frame_time = None
 
     def _stop_frame_loop(self):
         """Stop the frame loop"""
         if self._frame_loop_job is not None:
-            cron.cancel(self._frame_loop_job)
+            _cron.cancel(self._frame_loop_job)
             self._frame_loop_job = None
             self._last_frame_time = None
 
@@ -916,7 +938,7 @@ class GamepadState:
             target_time, config, is_base, cron_job = self._debounce_pending[key]
             del self._debounce_pending[key]
             if cron_job is not None:
-                cron.cancel(cron_job)
+                _cron.cancel(cron_job)
             config.behavior = None
             config.behavior_args = ()
             from .builder import ActiveBuilder

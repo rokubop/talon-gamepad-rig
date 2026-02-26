@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from .core import Vec2
 
 # Gamepad properties: sticks (Vec2) and triggers (scalar)
-VALID_PROPERTIES = ['left_thumb', 'right_thumb', 'left_trigger', 'right_trigger']
+VALID_PROPERTIES = ['left_stick', 'right_stick', 'left_trigger', 'right_trigger']
 
 # Valid operators per property type
 # Sticks (Vec2): full set of operators
@@ -17,8 +17,8 @@ VALID_PROPERTIES = ['left_thumb', 'right_thumb', 'left_trigger', 'right_trigger'
 # Note: .by() for sticks operates on components, .by() for triggers operates on value
 # Direction subproperty uses .by(degrees) for rotation
 VALID_OPERATORS = {
-    'left_thumb': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
-    'right_thumb': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
+    'left_stick': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
+    'right_stick': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
     'left_trigger': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
     'right_trigger': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
     # Subproperties
@@ -91,7 +91,7 @@ for behavior in VALID_BEHAVIORS:
 
 VALID_RIG_METHODS = [
     'stop', 'layer', 'offset', 'override', 'scale',
-    'left_thumb', 'right_thumb', 'left_trigger', 'right_trigger'
+    'left_stick', 'right_stick', 'left_trigger', 'right_trigger'
 ]
 
 VALID_RIG_PROPERTIES = VALID_PROPERTIES
@@ -113,7 +113,7 @@ PARAMETER_SUGGESTIONS = {
 
 # Layer state attributes that can be accessed for reading
 VALID_LAYER_STATE_ATTRS = [
-    'left_thumb', 'right_thumb', 'left_trigger', 'right_trigger',
+    'left_stick', 'right_stick', 'left_trigger', 'right_trigger',
     'magnitude', 'direction', 'x', 'y',
     'current', 'target', 'layers'
 ]
@@ -279,7 +279,7 @@ class BuilderConfig:
         self.device: str = "gamepad"
 
         # Property and operator
-        self.property: Optional[str] = None  # left_thumb, right_thumb, left_trigger, right_trigger
+        self.property: Optional[str] = None  # left_stick, right_stick, left_trigger, right_trigger
         self.subproperty: Optional[str] = None  # magnitude, direction, x, y (for sticks)
         self.operator: Optional[str] = None  # to, by, add, sub, mul, div
         self.value: Any = None
@@ -423,7 +423,7 @@ class BuilderConfig:
                         "Invalid direction vector (0, 0).\n\n"
                         "Direction cannot be a zero vector.\n\n"
                         "To center the stick, use:\n"
-                        "  gamepad.left_thumb.to(0, 0)  # Center stick\n"
+                        "  gamepad.left_stick.to(0, 0)  # Center stick\n"
                         "  gamepad.stop()                # Center all sticks/release triggers"
                     )
 
@@ -442,7 +442,7 @@ class BuilderConfig:
                 f"  - .override - replace the value\n"
                 f"  - .scale    - multiply the value\n\n"
                 f"Examples:\n"
-                f"  gamepad.layer('aim').left_thumb.magnitude.override.to(0.3)\n"
+                f"  gamepad.layer('aim').left_stick.magnitude.override.to(0.3)\n"
                 f"  gamepad.layer('boost').left_trigger.offset.add(0.2)"
             )
 
@@ -494,5 +494,5 @@ def validate_has_operation(config: 'BuilderConfig', method_name: str, mark_inval
             mark_invalid()
         raise GamepadRigUsageError(
             f"Cannot call .{method_name}() without a prior operation. "
-            f"You must set a property first (e.g., .left_thumb.to(1, 0), .left_trigger.to(0.5))."
+            f"You must set a property first (e.g., .left_stick.to(1, 0), .left_trigger.to(0.5))."
         )

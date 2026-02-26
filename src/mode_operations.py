@@ -273,10 +273,13 @@ def calculate_position_target(
         - scale: multiplier factor (float)
     """
     if mode == "scale":
-        # Scale mode: store multiplier
+        # Scale mode: store multiplier (Vec2 for per-axis scaling)
         if operator == "to":
-            return value
+            return Vec2.from_tuple(value) if isinstance(value, tuple) else value
         elif operator in ("by", "add"):
+            if isinstance(value, tuple):
+                v = Vec2.from_tuple(value)
+                return Vec2(1.0 + v.x, 1.0 + v.y)
             return 1.0 + value
 
     elif mode == "override":
@@ -328,7 +331,9 @@ def apply_position_mode(
         # Override: replace with absolute position
         return canonical_value
     elif mode == "scale":
-        # Scale: multiply components
+        # Scale: multiply components (supports per-axis Vec2 or uniform scalar)
+        if isinstance(canonical_value, Vec2):
+            return Vec2(accumulated.x * canonical_value.x, accumulated.y * canonical_value.y)
         return Vec2(accumulated.x * canonical_value, accumulated.y * canonical_value)
 
     return accumulated

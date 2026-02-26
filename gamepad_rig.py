@@ -10,6 +10,28 @@ from .src import gamepad_api
 
 mod = Module()
 
+STICK_DIRECTION_MAP = {
+    "left": (-1, 0),
+    "right": (1, 0),
+    "up": (0, 1),
+    "down": (0, -1),
+    "up_left": (-1, 1),
+    "up_right": (1, 1),
+    "down_left": (-1, -1),
+    "down_right": (1, -1),
+}
+
+
+def _parse_direction(direction: str) -> tuple:
+    """Parse a cardinal direction string to (x, y) tuple"""
+    direction = direction.lower().replace(" ", "_")
+    if direction not in STICK_DIRECTION_MAP:
+        raise ValueError(
+            f"Unknown direction '{direction}'. "
+            f"Valid: {sorted(STICK_DIRECTION_MAP.keys())}"
+        )
+    return STICK_DIRECTION_MAP[direction]
+
 
 @mod.action_class
 class Actions:
@@ -21,20 +43,20 @@ class Actions:
         gamepad = actions.user.gamepad_rig()
         
         # Basic stick control
-        gamepad.left_thumb.to(1, 0)  # Full right
-        gamepad.left_thumb.to(1, 0).over(1000)  # Smooth transition
+        gamepad.left_stick.to(1, 0)  # Full right
+        gamepad.left_stick.to(1, 0).over(1000)  # Smooth transition
         
         # Magnitude/direction decomposition
-        gamepad.left_thumb.magnitude.to(0.5)
-        gamepad.left_thumb.direction.to(1, 0)
-        gamepad.left_thumb.direction.by(90).over(1000)  # Rotate 90° over 1s
+        gamepad.left_stick.magnitude.to(0.5)
+        gamepad.left_stick.direction.to(1, 0)
+        gamepad.left_stick.direction.by(90).over(1000)  # Rotate 90° over 1s
         
         # Trigger control
         gamepad.left_trigger.to(1).over(100).revert(100)
         gamepad.right_trigger.to(0.5)  # Half press for aiming
         
         # Layer system
-        gamepad.layer("aim").left_thumb.magnitude.override.to(0.3)
+        gamepad.layer("aim").left_stick.magnitude.override.to(0.3)
         gamepad.layer("aim").revert(200)
         
         # Stop everything
@@ -52,6 +74,11 @@ class Actions:
         """Get gamepad rig version"""
         return get_version()
 
+    def gamepad_rig_tests():
+        """Toggle gamepad rig test runner UI"""
+        from .tests.main import toggle_test_ui
+        toggle_test_ui()
+
     def gamepad_rig_stop(transition_ms: int = None) -> None:
         """Stop all gamepad activity
         
@@ -62,7 +89,7 @@ class Actions:
         gamepad.stop(ms=transition_ms)
 
     # Convenience actions for common operations
-    def gamepad_rig_left_thumb_to(
+    def gamepad_rig_left_stick_to(
         x: float,
         y: float,
         over_ms: int = None,
@@ -77,12 +104,12 @@ class Actions:
             easing: Easing function (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.left_thumb.to(x, y)
+        builder = gamepad.left_stick.to(x, y)
         
         if over_ms is not None:
             builder = builder.over(over_ms, easing or "linear")
 
-    def gamepad_rig_right_thumb_to(
+    def gamepad_rig_right_stick_to(
         x: float,
         y: float,
         over_ms: int = None,
@@ -97,7 +124,7 @@ class Actions:
             easing: Easing function (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.right_thumb.to(x, y)
+        builder = gamepad.right_stick.to(x, y)
         
         if over_ms is not None:
             builder = builder.over(over_ms, easing or "linear")
@@ -146,23 +173,49 @@ class Actions:
     # Left Thumb - Direction & Rotation
     # =====================================================================
 
-    def gamepad_rig_left_thumb_direction(
-        x: float, y: float, over_ms: int = None, easing: str = None
+    def gamepad_rig_left_stick(
+        direction: str,
+        magnitude: float = None,
+        force: bool = False,
+        over_ms: int = None,
+        easing: str = None,
     ) -> None:
-        """Set left stick direction (preserves magnitude)
+        """Push left stick in cardinal direction
+
+        Keeps current magnitude unless force=True or starting from idle.
 
         Args:
-            x: Direction x component
-            y: Direction y component
+            direction: "left", "right", "up", "down", "up_left", etc.
+            magnitude: Target magnitude 0-1 (None = keep current, or 1 if idle)
+            force: If True, override current magnitude with magnitude param
+            over_ms: Duration in ms (optional)
+            easing: Easing function (optional)
+        """
+        dx, dy = _parse_direction(direction)
+        gamepad = actions.user.gamepad_rig()
+        if magnitude is not None or force:
+            mag = magnitude if magnitude is not None else 1
+            builder = gamepad.left_stick.to(dx * mag, dy * mag)
+        else:
+            builder = gamepad.left_stick.direction.to(dx, dy)
+        if over_ms is not None:
+            builder.over(over_ms, easing or "linear")
+
+    def gamepad_rig_left_stick_reverse(
+        over_ms: int = None, easing: str = None
+    ) -> None:
+        """Reverse left stick direction (180° rotation)
+
+        Args:
             over_ms: Duration in ms (optional)
             easing: Easing function (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.left_thumb.direction.to(x, y)
+        builder = gamepad.left_stick.direction.by(180)
         if over_ms is not None:
             builder.over(over_ms, easing or "linear")
 
-    def gamepad_rig_left_thumb_rotate(
+    def gamepad_rig_left_stick_rotate(
         degrees: float, over_ms: int = None, easing: str = None
     ) -> None:
         """Rotate left stick direction by degrees
@@ -173,7 +226,7 @@ class Actions:
             easing: Easing function (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.left_thumb.direction.by(degrees)
+        builder = gamepad.left_stick.direction.by(degrees)
         if over_ms is not None:
             builder.over(over_ms, easing or "linear")
 
@@ -181,7 +234,7 @@ class Actions:
     # Left Thumb - Magnitude
     # =====================================================================
 
-    def gamepad_rig_left_thumb_magnitude_to(
+    def gamepad_rig_left_stick_magnitude_to(
         value: float, over_ms: int = None, hold_ms: int = None, revert_ms: int = None
     ) -> None:
         """Set left stick magnitude to absolute value
@@ -193,7 +246,7 @@ class Actions:
             revert_ms: Revert duration (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.left_thumb.magnitude.to(value)
+        builder = gamepad.left_stick.magnitude.to(value)
         if over_ms is not None:
             builder = builder.over(over_ms)
         if hold_ms is not None:
@@ -201,7 +254,7 @@ class Actions:
         if revert_ms is not None:
             builder.revert(revert_ms)
 
-    def gamepad_rig_left_thumb_magnitude_add(
+    def gamepad_rig_left_stick_magnitude_add(
         value: float, over_ms: int = None, hold_ms: int = None, revert_ms: int = None
     ) -> None:
         """Add to left stick magnitude
@@ -213,7 +266,7 @@ class Actions:
             revert_ms: Revert duration (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.left_thumb.magnitude.by(value)
+        builder = gamepad.left_stick.magnitude.by(value)
         if over_ms is not None:
             builder = builder.over(over_ms)
         if hold_ms is not None:
@@ -221,7 +274,7 @@ class Actions:
         if revert_ms is not None:
             builder.revert(revert_ms)
 
-    def gamepad_rig_left_thumb_magnitude_mul(
+    def gamepad_rig_left_stick_magnitude_mul(
         value: float, over_ms: int = None, hold_ms: int = None, revert_ms: int = None
     ) -> None:
         """Multiply left stick magnitude
@@ -233,7 +286,7 @@ class Actions:
             revert_ms: Revert duration (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.left_thumb.magnitude.scale.to(value)
+        builder = gamepad.left_stick.magnitude.scale.to(value)
         if over_ms is not None:
             builder = builder.over(over_ms)
         if hold_ms is not None:
@@ -245,23 +298,49 @@ class Actions:
     # Right Thumb - Direction & Rotation
     # =====================================================================
 
-    def gamepad_rig_right_thumb_direction(
-        x: float, y: float, over_ms: int = None, easing: str = None
+    def gamepad_rig_right_stick(
+        direction: str,
+        magnitude: float = None,
+        force: bool = False,
+        over_ms: int = None,
+        easing: str = None,
     ) -> None:
-        """Set right stick direction (preserves magnitude)
+        """Push right stick in cardinal direction
+
+        Keeps current magnitude unless force=True or starting from idle.
 
         Args:
-            x: Direction x component
-            y: Direction y component
+            direction: "left", "right", "up", "down", "up_left", etc.
+            magnitude: Target magnitude 0-1 (None = keep current, or 1 if idle)
+            force: If True, override current magnitude with magnitude param
+            over_ms: Duration in ms (optional)
+            easing: Easing function (optional)
+        """
+        dx, dy = _parse_direction(direction)
+        gamepad = actions.user.gamepad_rig()
+        if magnitude is not None or force:
+            mag = magnitude if magnitude is not None else 1
+            builder = gamepad.right_stick.to(dx * mag, dy * mag)
+        else:
+            builder = gamepad.right_stick.direction.to(dx, dy)
+        if over_ms is not None:
+            builder.over(over_ms, easing or "linear")
+
+    def gamepad_rig_right_stick_reverse(
+        over_ms: int = None, easing: str = None
+    ) -> None:
+        """Reverse right stick direction (180° rotation)
+
+        Args:
             over_ms: Duration in ms (optional)
             easing: Easing function (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.right_thumb.direction.to(x, y)
+        builder = gamepad.right_stick.direction.by(180)
         if over_ms is not None:
             builder.over(over_ms, easing or "linear")
 
-    def gamepad_rig_right_thumb_rotate(
+    def gamepad_rig_right_stick_rotate(
         degrees: float, over_ms: int = None, easing: str = None
     ) -> None:
         """Rotate right stick direction by degrees
@@ -272,83 +351,15 @@ class Actions:
             easing: Easing function (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.right_thumb.direction.by(degrees)
+        builder = gamepad.right_stick.direction.by(degrees)
         if over_ms is not None:
             builder.over(over_ms, easing or "linear")
 
     # =====================================================================
-    # Left Thumb - X/Y Axis
+    # Right Stick - Magnitude
     # =====================================================================
 
-    def gamepad_rig_left_thumb_x_to(
-        value: float, over_ms: int = None, easing: str = None
-    ) -> None:
-        """Set left stick x axis, preserving y
-
-        Args:
-            value: Target x position [-1, 1]
-            over_ms: Duration in ms (optional)
-            easing: Easing function (optional)
-        """
-        gamepad = actions.user.gamepad_rig()
-        builder = gamepad.left_thumb.x.to(value)
-        if over_ms is not None:
-            builder.over(over_ms, easing or "linear")
-
-    def gamepad_rig_left_thumb_y_to(
-        value: float, over_ms: int = None, easing: str = None
-    ) -> None:
-        """Set left stick y axis, preserving x
-
-        Args:
-            value: Target y position [-1, 1]
-            over_ms: Duration in ms (optional)
-            easing: Easing function (optional)
-        """
-        gamepad = actions.user.gamepad_rig()
-        builder = gamepad.left_thumb.y.to(value)
-        if over_ms is not None:
-            builder.over(over_ms, easing or "linear")
-
-    # =====================================================================
-    # Right Thumb - X/Y Axis
-    # =====================================================================
-
-    def gamepad_rig_right_thumb_x_to(
-        value: float, over_ms: int = None, easing: str = None
-    ) -> None:
-        """Set right stick x axis, preserving y
-
-        Args:
-            value: Target x position [-1, 1]
-            over_ms: Duration in ms (optional)
-            easing: Easing function (optional)
-        """
-        gamepad = actions.user.gamepad_rig()
-        builder = gamepad.right_thumb.x.to(value)
-        if over_ms is not None:
-            builder.over(over_ms, easing or "linear")
-
-    def gamepad_rig_right_thumb_y_to(
-        value: float, over_ms: int = None, easing: str = None
-    ) -> None:
-        """Set right stick y axis, preserving x
-
-        Args:
-            value: Target y position [-1, 1]
-            over_ms: Duration in ms (optional)
-            easing: Easing function (optional)
-        """
-        gamepad = actions.user.gamepad_rig()
-        builder = gamepad.right_thumb.y.to(value)
-        if over_ms is not None:
-            builder.over(over_ms, easing or "linear")
-
-    # =====================================================================
-    # Right Thumb - Magnitude
-    # =====================================================================
-
-    def gamepad_rig_right_thumb_magnitude_to(
+    def gamepad_rig_right_stick_magnitude_to(
         value: float, over_ms: int = None, hold_ms: int = None, revert_ms: int = None
     ) -> None:
         """Set right stick magnitude to absolute value
@@ -360,7 +371,7 @@ class Actions:
             revert_ms: Revert duration (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.right_thumb.magnitude.to(value)
+        builder = gamepad.right_stick.magnitude.to(value)
         if over_ms is not None:
             builder = builder.over(over_ms)
         if hold_ms is not None:
@@ -368,7 +379,7 @@ class Actions:
         if revert_ms is not None:
             builder.revert(revert_ms)
 
-    def gamepad_rig_right_thumb_magnitude_add(
+    def gamepad_rig_right_stick_magnitude_add(
         value: float, over_ms: int = None, hold_ms: int = None, revert_ms: int = None
     ) -> None:
         """Add to right stick magnitude
@@ -380,7 +391,7 @@ class Actions:
             revert_ms: Revert duration (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.right_thumb.magnitude.by(value)
+        builder = gamepad.right_stick.magnitude.by(value)
         if over_ms is not None:
             builder = builder.over(over_ms)
         if hold_ms is not None:
@@ -388,7 +399,7 @@ class Actions:
         if revert_ms is not None:
             builder.revert(revert_ms)
 
-    def gamepad_rig_right_thumb_magnitude_mul(
+    def gamepad_rig_right_stick_magnitude_mul(
         value: float, over_ms: int = None, hold_ms: int = None, revert_ms: int = None
     ) -> None:
         """Multiply right stick magnitude
@@ -400,7 +411,7 @@ class Actions:
             revert_ms: Revert duration (optional)
         """
         gamepad = actions.user.gamepad_rig()
-        builder = gamepad.right_thumb.magnitude.scale.to(value)
+        builder = gamepad.right_stick.magnitude.scale.to(value)
         if over_ms is not None:
             builder = builder.over(over_ms)
         if hold_ms is not None:
@@ -416,16 +427,16 @@ class Actions:
         """Get full gamepad rig state object"""
         return actions.user.gamepad_rig().state
 
-    def gamepad_rig_state_left_thumb() -> Any:
+    def gamepad_rig_state_left_stick() -> Any:
         """Get current left stick position as (x, y)"""
         state = actions.user.gamepad_rig().state
-        lt = state.left_thumb
+        lt = state.left_stick
         return (lt.x, lt.y)
 
-    def gamepad_rig_state_right_thumb() -> Any:
+    def gamepad_rig_state_right_stick() -> Any:
         """Get current right stick position as (x, y)"""
         state = actions.user.gamepad_rig().state
-        rt = state.right_thumb
+        rt = state.right_stick
         return (rt.x, rt.y)
 
     def gamepad_rig_state_left_trigger() -> float:
@@ -436,13 +447,13 @@ class Actions:
         """Get current right trigger value"""
         return actions.user.gamepad_rig().state.right_trigger
 
-    def gamepad_rig_state_left_thumb_magnitude() -> float:
+    def gamepad_rig_state_left_stick_magnitude() -> float:
         """Get current left stick magnitude"""
-        return actions.user.gamepad_rig().state.left_thumb.magnitude()
+        return actions.user.gamepad_rig().state.left_stick.magnitude()
 
-    def gamepad_rig_state_left_thumb_direction() -> Any:
+    def gamepad_rig_state_left_stick_direction() -> Any:
         """Get current left stick direction as (x, y) unit vector"""
-        d = actions.user.gamepad_rig().state.left_thumb.normalized()
+        d = actions.user.gamepad_rig().state.left_stick.normalized()
         return (d.x, d.y)
 
     def gamepad_rig_is_active() -> bool:
@@ -450,8 +461,8 @@ class Actions:
         state = actions.user.gamepad_rig().state
         if state._frame_loop_job is not None:
             return True
-        lt = state.left_thumb
-        rt = state.right_thumb
+        lt = state.left_stick
+        rt = state.right_stick
         if lt.x != 0 or lt.y != 0:
             return True
         if rt.x != 0 or rt.y != 0:
@@ -485,3 +496,21 @@ class Actions:
     def gamepad_rig_button_valid() -> list:
         """Get list of valid gamepad button names"""
         return gamepad_api.get_valid_buttons()
+
+    # =====================================================================
+    # Device Lifecycle
+    # =====================================================================
+
+    def gamepad_rig_connect() -> None:
+        """Connect the virtual gamepad device (plugs in to Windows)"""
+        gamepad_api.connect_gamepad()
+
+    def gamepad_rig_disconnect() -> None:
+        """Disconnect the virtual gamepad device (unplugs from Windows).
+        Also reloads the rig state."""
+        reload_rig()
+        gamepad_api.disconnect_gamepad()
+
+    def gamepad_rig_is_connected() -> bool:
+        """Check if the virtual gamepad device is currently connected"""
+        return gamepad_api.is_connected()

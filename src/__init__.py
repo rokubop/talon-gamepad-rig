@@ -5,17 +5,18 @@ Example usage:
 
     def my_action():
         gamepad = rig()
-        gamepad.left_thumb.to(1, 0)  # Full right
+        gamepad.left_stick.to(1, 0)  # Full right
         gamepad.left_trigger.to(0.5)  # Half press
 """
 
 from typing import Optional
+import os
 import time
 from .state import GamepadState
 from .builder import GamepadBuilder
 from .contracts import (
     validate_timing,
-    RigAttributeError,
+    GamepadRigAttributeError,
     find_closest_match,
     VALID_RIG_METHODS,
     VALID_RIG_PROPERTIES,
@@ -67,14 +68,14 @@ class Rig:
     # ========================================================================
 
     @property
-    def left_thumb(self):
-        """Left thumbstick property accessor (base layer)"""
-        return GamepadBuilder(self._state).left_thumb
+    def left_stick(self):
+        """Left stick property accessor (base layer)"""
+        return GamepadBuilder(self._state).left_stick
 
     @property
-    def right_thumb(self):
-        """Right thumbstick property accessor (base layer)"""
-        return GamepadBuilder(self._state).right_thumb
+    def right_stick(self):
+        """Right stick property accessor (base layer)"""
+        return GamepadBuilder(self._state).right_stick
 
     @property
     def left_trigger(self):
@@ -183,7 +184,7 @@ class Rig:
             msg += f"\n\nAvailable properties: {', '.join(VALID_RIG_PROPERTIES)}"
             msg += f"\nAvailable methods: {', '.join(VALID_RIG_METHODS)}"
 
-        raise RigAttributeError(msg)
+        raise GamepadRigAttributeError(msg)
 
 
 class _BehaviorAccessor:
@@ -201,18 +202,18 @@ class _BehaviorAccessor:
         return builder
 
     @property
-    def left_thumb(self):
-        """Property access: rig.stack.left_thumb"""
+    def left_stick(self):
+        """Property access: rig.stack.left_stick"""
         builder = GamepadBuilder(self._state)
         builder.config.behavior = self._behavior
-        return builder.left_thumb
+        return builder.left_stick
 
     @property
-    def right_thumb(self):
-        """Property access: rig.stack.right_thumb"""
+    def right_stick(self):
+        """Property access: rig.stack.right_stick"""
         builder = GamepadBuilder(self._state)
         builder.config.behavior = self._behavior
-        return builder.right_thumb
+        return builder.right_stick
 
     @property
     def left_trigger(self):
@@ -237,16 +238,17 @@ def rig() -> Rig:
 
     Example:
         gamepad = rig()
-        gamepad.left_thumb.to(1, 0).over(1000)
+        gamepad.left_stick.to(1, 0).over(1000)
         gamepad.left_trigger.to(1).over(100).revert(100)
     """
     return Rig()
 
 
-def reload_rig():
-    """Clear the rig state
+def reset_rig():
+    """Reset rig state without reloading files.
 
-    Stops all active movements and resets state.
+    Stops all active movements and clears state.
+    Does NOT disconnect the virtual device.
     """
     global _global_state
 
@@ -254,9 +256,59 @@ def reload_rig():
         try:
             _global_state.stop(transition_ms=0)
             _global_state._stop_frame_loop()
-        except Exception as e:
-            print(f"Error stopping gamepad rig: {e}")
+        except Exception:
+            pass
         _global_state = None
+
+
+def reload_rig():
+    """Clear the rig state and touch all Python files to force Talon reload
+
+    Manually triggers reload by:
+    1. Stopping active movements and clearing state
+    2. Touching all Python files in src/ and tests/ to trigger Talon's file watcher
+    """
+    from .ui import show_reloading_notification
+
+    reset_rig()
+
+    # Show brief notification before reload
+    show_reloading_notification()
+    # Small delay to ensure notification is visible before reload
+    time.sleep(0.1)
+
+    # Touch all Python files in src/ and tests/ to trigger Talon's file watcher
+    # Touch src/__init__.py FIRST so module reinitializes properly
+    src_dir = os.path.dirname(__file__)
+    parent_dir = os.path.dirname(src_dir)
+
+    # Touch src/__init__.py first (order matters for Talon's reload)
+    init_file = os.path.join(src_dir, '__init__.py')
+    if os.path.exists(init_file):
+        try:
+            os.utime(init_file, None)
+        except Exception:
+            pass
+
+    # Then touch other src/ files (skip ui.py so notification cron job can execute)
+    for filename in os.listdir(src_dir):
+        if filename.endswith('.py') and filename not in ('__init__.py', 'ui.py'):
+            filepath = os.path.join(src_dir, filename)
+            try:
+                os.utime(filepath, None)
+            except Exception:
+                pass
+
+    # Then touch tests/ files
+    tests_dir = os.path.join(parent_dir, 'tests')
+    if os.path.exists(tests_dir):
+        for filename in os.listdir(tests_dir):
+            if filename.endswith('.py'):
+                filepath = os.path.join(tests_dir, filename)
+                try:
+                    os.utime(filepath, None)
+                except Exception:
+                    pass
 
 
 def get_version() -> str:
@@ -264,4 +316,4 @@ def get_version() -> str:
     return "0.1.0-alpha"
 
 
-__all__ = ['rig', 'Rig', 'StopHandle', 'GamepadBuilder', 'GamepadState', 'reload_rig', 'get_version']
+__all__ = ['rig', 'Rig', 'StopHandle', 'GamepadBuilder', 'GamepadState', 'reset_rig', 'reload_rig', 'get_version']

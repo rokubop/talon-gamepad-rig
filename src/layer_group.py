@@ -1,6 +1,6 @@
 """Layer Group - Container for builders on a single layer
 
-Each layer (base.left_thumb, left_thumb.offset, or user-named) gets a LayerGroup.
+Each layer (base.left_stick, left_stick.offset, or user-named) gets a LayerGroup.
 Groups manage:
 - Active builders (operations in progress)
 - Accumulated state (for modifier layers)
@@ -22,8 +22,8 @@ class LayerGroup:
     """Container for all builders on a single layer
 
     Scope examples:
-    - Base: base.left_thumb, base.left_trigger
-    - Auto-modifier: left_thumb.offset, left_trigger.override
+    - Base: base.left_stick, base.left_trigger
+    - Auto-modifier: left_stick.offset, left_trigger.override
     - User-named: "aim", "boost", etc.
     """
 
@@ -70,7 +70,7 @@ class LayerGroup:
 
     def _zero_value(self) -> Any:
         """Get zero/identity value for this property"""
-        if self.property in ("left_thumb", "right_thumb"):
+        if self.property in ("left_stick", "right_stick"):
             if self.subproperty is None:
                 return Vec2(0, 0)
             elif self.subproperty == "direction":

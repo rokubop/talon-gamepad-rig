@@ -25,17 +25,17 @@ from talon import actions
 gamepad = actions.user.gamepad_rig()
 
 # Move left stick smoothly
-gamepad.left_thumb.to(1, 0).over(1000)  # Full right over 1 second
+gamepad.left_stick.to(1, 0).over(1000)  # Full right over 1 second
 
 # Press left trigger smoothly
 gamepad.left_trigger.to(1).over(100).revert(100)  # Press and release
 
 # Use magnitude/direction decomposition
-gamepad.left_thumb.magnitude.to(0.5)  # Half speed
-gamepad.left_thumb.direction.by(90).over(500)  # Rotate 90° over 0.5s
+gamepad.left_stick.magnitude.to(0.5)  # Half speed
+gamepad.left_stick.direction.by(90).over(500)  # Rotate 90° over 0.5s
 
 # Layer for temporary modifiers
-gamepad.layer("aim").left_thumb.magnitude.override.to(0.3)
+gamepad.layer("aim").left_stick.magnitude.override.to(0.3)
 gamepad.layer("aim").revert(200)  # Revert smoothly
 
 # Stop everything
@@ -61,8 +61,8 @@ Based on mouse_rig V2 architecture:
 ### Properties
 
 **Analog Sticks** (Vec2, range [-1, 1]):
-- `gamepad.left_thumb`
-- `gamepad.right_thumb`
+- `gamepad.left_stick`
+- `gamepad.right_stick`
 
 **Triggers** (Scalar, range [0, 1]):
 - `gamepad.left_trigger`

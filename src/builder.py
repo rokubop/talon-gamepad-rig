@@ -65,16 +65,16 @@ class ModeProxy:
             self.builder.config.layer_type = LayerType.AUTO_NAMED_MODIFIER
 
     @property
-    def left_thumb(self) -> 'StickPropertyBuilder':
+    def left_stick(self) -> 'StickPropertyBuilder':
         self.builder.config.mode = self.mode
-        self._set_implicit_layer("left_thumb")
-        return StickPropertyBuilder(self.builder, "left_thumb")
+        self._set_implicit_layer("left_stick")
+        return StickPropertyBuilder(self.builder, "left_stick")
 
     @property
-    def right_thumb(self) -> 'StickPropertyBuilder':
+    def right_stick(self) -> 'StickPropertyBuilder':
         self.builder.config.mode = self.mode
-        self._set_implicit_layer("right_thumb")
-        return StickPropertyBuilder(self.builder, "right_thumb")
+        self._set_implicit_layer("right_stick")
+        return StickPropertyBuilder(self.builder, "right_stick")
 
     @property
     def left_trigger(self) -> 'TriggerPropertyBuilder':
@@ -127,14 +127,14 @@ class GamepadBuilder:
     # ========================================================================
 
     @property
-    def left_thumb(self) -> 'StickPropertyBuilder':
-        """Access left thumb stick"""
-        return StickPropertyBuilder(self, "left_thumb")
+    def left_stick(self) -> 'StickPropertyBuilder':
+        """Access left stick"""
+        return StickPropertyBuilder(self, "left_stick")
 
     @property
-    def right_thumb(self) -> 'StickPropertyBuilder':
-        """Access right thumb stick"""
-        return StickPropertyBuilder(self, "right_thumb")
+    def right_stick(self) -> 'StickPropertyBuilder':
+        """Access right stick"""
+        return StickPropertyBuilder(self, "right_stick")
 
     @property
     def left_trigger(self) -> 'TriggerPropertyBuilder':
@@ -365,7 +365,7 @@ class GamepadBuilder:
                         self.config.over_ms = rate_utils.calculate_direction_by_duration(
                             angle, self.config.over_rate
                         )
-                elif prop in ("left_thumb", "right_thumb") and subprop is None:
+                elif prop in ("left_stick", "right_stick") and subprop is None:
                     # Vec2 stick rate
                     cur = current_value if is_vec2(current_value) else Vec2(0, 0)
                     tgt = target_value if is_vec2(target_value) else Vec2(0, 0)
@@ -389,7 +389,7 @@ class GamepadBuilder:
                         self.config.revert_ms = rate_utils.calculate_direction_duration(
                             target_value, current_value, self.config.revert_rate
                         )
-                elif prop in ("left_thumb", "right_thumb") and subprop is None:
+                elif prop in ("left_stick", "right_stick") and subprop is None:
                     cur = current_value if is_vec2(current_value) else Vec2(0, 0)
                     tgt = target_value if is_vec2(target_value) else Vec2(0, 0)
                     self.config.revert_ms = rate_utils.calculate_position_duration(
@@ -401,8 +401,8 @@ class GamepadBuilder:
         prop = self.config.property
         subprop = self.config.subproperty
 
-        if prop == "left_thumb":
-            base = self.gamepad_state._base_left_thumb
+        if prop == "left_stick":
+            base = self.gamepad_state._base_left_stick
             if subprop == "magnitude":
                 return base.magnitude()
             elif subprop == "direction":
@@ -412,8 +412,8 @@ class GamepadBuilder:
             elif subprop == "y":
                 return base.y
             return base.copy()
-        elif prop == "right_thumb":
-            base = self.gamepad_state._base_right_thumb
+        elif prop == "right_stick":
+            base = self.gamepad_state._base_right_stick
             if subprop == "magnitude":
                 return base.magnitude()
             elif subprop == "direction":
@@ -459,7 +459,7 @@ class GamepadBuilder:
                     new_y = current.x * sin_a + current.y * cos_a
                     return Vec2(new_x, new_y).normalized()
                 return current
-        elif prop in ("left_thumb", "right_thumb") and subprop is None:
+        elif prop in ("left_stick", "right_stick") and subprop is None:
             # Vec2 stick target
             if operator == "to":
                 return Vec2.from_tuple(value) if isinstance(value, tuple) else value
@@ -888,10 +888,10 @@ class ActiveBuilder:
         prop = self.config.property
         subprop = self.config.subproperty
 
-        if prop == "left_thumb":
-            base = self.gamepad_state._base_left_thumb
-        elif prop == "right_thumb":
-            base = self.gamepad_state._base_right_thumb
+        if prop == "left_stick":
+            base = self.gamepad_state._base_left_stick
+        elif prop == "right_stick":
+            base = self.gamepad_state._base_right_stick
         elif prop == "left_trigger":
             return self.gamepad_state._base_left_trigger
         elif prop == "right_trigger":
@@ -930,7 +930,7 @@ class ActiveBuilder:
             return mode_operations.calculate_scalar_target(operator, value, current, mode)
         elif subprop == "direction":
             return mode_operations.calculate_direction_target(operator, value, current, mode)
-        elif prop in ("left_thumb", "right_thumb") and subprop is None:
+        elif prop in ("left_stick", "right_stick") and subprop is None:
             return mode_operations.calculate_position_target(operator, value, current, mode)
 
         return current
@@ -1009,8 +1009,8 @@ class ActiveBuilder:
                     self.lifecycle.has_reverted(), interpolation
                 )
 
-        # Vec2 stick properties (left_thumb, right_thumb without subproperty)
-        elif prop in ("left_thumb", "right_thumb") and subprop is None:
+        # Vec2 stick properties (left_stick, right_stick without subproperty)
+        elif prop in ("left_stick", "right_stick") and subprop is None:
             if mode == "scale":
                 return PropertyAnimator.animate_scalar(
                     1.0, self.target_value, phase, progress, self.lifecycle.has_reverted()

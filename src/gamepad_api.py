@@ -124,6 +124,25 @@ def reset_gamepad() -> None:
     _gamepad.update()
 
 
+def connect_gamepad() -> None:
+    """Connect the virtual gamepad device (plugs in to Windows)"""
+    _ensure_gamepad()
+
+
+def disconnect_gamepad() -> None:
+    """Disconnect the virtual gamepad device (unplugs from Windows)"""
+    global _gamepad
+    if _gamepad is not None:
+        _gamepad.reset()
+        _gamepad.update()
+        _gamepad = None
+
+
+def is_connected() -> bool:
+    """Check if the virtual gamepad device is currently connected"""
+    return _gamepad is not None
+
+
 def is_available() -> bool:
     """Check if vgamepad is available"""
     return _vgamepad_available
@@ -145,13 +164,13 @@ if _vgamepad_available:
         "dpad_down": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_DOWN,
         "dpad_left": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_LEFT,
         "dpad_right": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,
-        "left_shoulder": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
-        "right_shoulder": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
-        "left_thumb_button": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,
-        "right_thumb_button": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,
+        "lb": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_SHOULDER,
+        "rb": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_SHOULDER,
+        "l3": vg.XUSB_BUTTON.XUSB_GAMEPAD_LEFT_THUMB,
+        "r3": vg.XUSB_BUTTON.XUSB_GAMEPAD_RIGHT_THUMB,
         "start": vg.XUSB_BUTTON.XUSB_GAMEPAD_START,
-        "back": vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
-        "guide": vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
+        "select": vg.XUSB_BUTTON.XUSB_GAMEPAD_BACK,
+        "home": vg.XUSB_BUTTON.XUSB_GAMEPAD_GUIDE,
     }
 
 
