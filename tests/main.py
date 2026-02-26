@@ -17,6 +17,7 @@ from .test_layers import LAYER_TESTS
 from .test_buttons import BUTTON_TESTS
 from .test_state import STATE_TESTS
 from .test_stop_reset import STOP_RESET_TESTS
+from .test_transitions import TRANSITION_TESTS
 
 TEST_GROUPS = [
     ("Stick Basic", STICK_BASIC_TESTS),
@@ -27,6 +28,7 @@ TEST_GROUPS = [
     ("Buttons", BUTTON_TESTS),
     ("State", STATE_TESTS),
     ("Stop/Reset", STOP_RESET_TESTS),
+    ("Transitions", TRANSITION_TESTS),
 ]
 
 _test_runner_state = {
