@@ -259,48 +259,67 @@ class GamepadState:
             easing: Easing function
         """
         if layer_name not in self._layer_groups:
+            print(f"[REVERT] layer '{layer_name}' not in _layer_groups")
             return
 
         group = self._layer_groups[layer_name]
         current_time = time.perf_counter()
 
-        for builder in group.builders:
-            builder.lifecycle.trigger_revert(current_time, revert_ms, easing)
+        if group.builders:
+            for builder in group.builders:
+                builder.lifecycle.trigger_revert(current_time, revert_ms, easing)
+        else:
+            # No active builders, but group has accumulated_value.
+            # Create a revert builder to transition accumulated_value to zero.
+            if not group._is_reverted_to_zero():
+                from .builder import ActiveBuilder
 
-        # If no builders but layer has accumulated value, create a group lifecycle
-        if not group.builders and not group._is_reverted_to_zero():
-            lifecycle = Lifecycle(is_modifier_layer=True)
-            lifecycle.revert_ms = revert_ms or 0
-            lifecycle.revert_easing = easing
-            lifecycle.start(current_time)
+                config = BuilderConfig()
+                config.layer_name = layer_name
+                config.property = group.property
+                config.subproperty = group.subproperty
+                config.mode = group.mode
+                config.operator = "to"
 
-            # Create a dummy builder to animate the revert
-            from .builder import ActiveBuilder
-            config = BuilderConfig()
-            config.layer_name = layer_name
-            config.property = group.property
-            config.subproperty = group.subproperty
-            config.mode = group.mode
-            config.operator = "to"
-            config.revert_ms = revert_ms or 0
-            config.revert_easing = easing
+                # Set target value to current accumulated value so the builder
+                # computes the correct base→target range for its animation.
+                if isinstance(group.accumulated_value, Vec2):
+                    config.value = (group.accumulated_value.x, group.accumulated_value.y)
+                else:
+                    config.value = group.accumulated_value
 
-            # Set value to zero/neutral for revert target
-            if isinstance(group.accumulated_value, Vec2):
-                config.value = (0, 0)
-            else:
-                config.value = 0.0
+                # No over phase — immediately start reverting
+                config.over_ms = 0
+                config.revert_ms = revert_ms if revert_ms is not None else 0
+                config.revert_easing = easing
 
-            active = ActiveBuilder(config, self, False)
-            active.group_lifecycle = lifecycle
-            active.group_base_value = group.accumulated_value
-            if isinstance(group.accumulated_value, Vec2):
-                active.group_target_value = Vec2(0, 0)
-            else:
-                active.group_target_value = 0.0
+                # Save accumulated before clearing — needed to override target below
+                saved_accumulated = group.accumulated_value.copy() if isinstance(group.accumulated_value, Vec2) else group.accumulated_value
 
-            group.add_builder(active)
-            self._ensure_frame_loop_running()
+                # Zero out accumulated value — the revert builder takes sole
+                # ownership of the value during its transition back to zero.
+                if isinstance(group.accumulated_value, Vec2):
+                    group.accumulated_value = Vec2(0, 0)
+                else:
+                    group.accumulated_value = 0.0
+
+                # Create the builder
+                active = ActiveBuilder(config, self, False)
+
+                # Override target_value — _calculate_target_value's offset mode
+                # does (value - base) which is wrong here because base_value is
+                # the hardware base, not the layer's neutral offset (zero).
+                # The correct target is simply the accumulated value itself.
+                active.target_value = saved_accumulated
+
+                # Configure lifecycle to start directly in REVERT phase
+                active.lifecycle.start(current_time)
+                active.lifecycle.phase = LifecyclePhase.REVERT
+                active.lifecycle.phase_start_time = current_time
+
+                group.add_builder(active)
+
+        self._ensure_frame_loop_running()
 
     # ========================================================================
     # ADD BUILDER (the main pipeline)
