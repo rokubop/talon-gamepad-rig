@@ -9,7 +9,18 @@
   "preview": "",
   "author": "Rokubop",
   "tags": [],
-  "dependencies": {},
+  "dependencies": {
+    "talon-rig-core": {
+      "min_version": "1.0.0",
+      "namespace": "user.rig_core",
+      "github": "https://github.com/rokubop/talon-rig-core"
+    },
+    "talon-ui-elements": {
+      "min_version": "0.15.0",
+      "namespace": "user.ui_elements",
+      "github": "https://github.com/rokubop/talon-ui-elements"
+    }
+  },
   "devDependencies": {},
   "contributes": {
     "actions": [
@@ -17,7 +28,10 @@
       "user.gamepad_rig_button_press",
       "user.gamepad_rig_button_release",
       "user.gamepad_rig_button_valid",
+      "user.gamepad_rig_connect",
+      "user.gamepad_rig_disconnect",
       "user.gamepad_rig_is_active",
+      "user.gamepad_rig_is_connected",
       "user.gamepad_rig_left_stick",
       "user.gamepad_rig_left_stick_magnitude_add",
       "user.gamepad_rig_left_stick_magnitude_mul",
@@ -44,10 +58,25 @@
       "user.gamepad_rig_state_right_stick",
       "user.gamepad_rig_state_right_trigger",
       "user.gamepad_rig_stop",
+      "user.gamepad_rig_tests",
       "user.gamepad_rig_version"
     ]
   },
-  "depends": {},
+  "depends": {
+    "actions": [
+      "user.gamepad_tester_toggle",
+      "user.rig_core",
+      "user.ui_elements",
+      "user.ui_elements_get_state",
+      "user.ui_elements_get_trees",
+      "user.ui_elements_hide",
+      "user.ui_elements_highlight",
+      "user.ui_elements_set_state",
+      "user.ui_elements_show",
+      "user.ui_elements_unhighlight"
+    ]
+  },
+  "validateDependencies": true,
   "_generator": "talon-pack",
   "_generatorVersion": "3.0.0",
   "_generatorRequiresVersionAction": true,

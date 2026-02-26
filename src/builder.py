@@ -1,32 +1,134 @@
 """GamepadBuilder - fluent API for gamepad control
 
-Adapted from mouse-rig's RigBuilder. Execution happens on __del__.
+GamepadActiveBuilder subclasses BaseActiveBuilder from rig-core.
+GamepadBuilder (fluent API) stays as gamepad-specific code.
 """
 
 import math
 import time
 from typing import Optional, Callable, Any, TYPE_CHECKING
-from .core import Vec2, is_vec2, clamp_stick_vec2, clamp_trigger_value, clamp_stick_value
+
+from .core import clamp_stick_vec2, clamp_trigger_value, clamp_stick_value
 from .contracts import (
-    BuilderConfig,
-    LifecyclePhase,
-    LayerType,
-    validate_timing,
-    validate_has_operation,
-    ConfigError,
     GamepadRigAttributeError,
-    find_closest_match,
     VALID_BUILDER_METHODS,
     VALID_OPERATORS,
 )
-from .lifecycle import Lifecycle, PropertyAnimator
-from . import rate_utils
-from . import mode_operations
 
 if TYPE_CHECKING:
     from .state import GamepadState
-    from .layer_group import LayerGroup
+    from .layer_group import GamepadLayerGroup
 
+
+# Module-level references set by _build_classes
+GamepadActiveBuilder = None
+_core = None
+
+
+def _build_classes(core):
+    global GamepadActiveBuilder, _core
+    _core = core
+
+    from .core import Vec2, is_vec2, EPSILON
+    from .contracts import (
+        LifecyclePhase,
+        LayerType,
+        ConfigError,
+        validate_timing,
+        validate_has_operation,
+        find_closest_match,
+    )
+    from . import mode_operations
+
+    class _GamepadActiveBuilder(core.BaseActiveBuilder):
+        """Gamepad-specific active builder - implements 3 abstract methods"""
+
+        def __init__(self, config, rig_state, is_base_layer):
+            # Auto-default to slerp for direction rotation (lerp collapses through zero at 180 degrees)
+            if (getattr(config, 'subproperty', None) == "direction" and
+                config.operator in ("by", "add") and
+                config.over_ms is not None and
+                config.over_ms > 0):
+                if config.over_interpolation == "lerp":
+                    config.over_interpolation = "slerp"
+                if config.revert_interpolation == "lerp":
+                    config.revert_interpolation = "slerp"
+
+            super().__init__(config, rig_state, is_base_layer)
+
+        def _get_base_value(self) -> Any:
+            """Read raw base value from device state for this property."""
+            prop = self.config.property
+            subprop = getattr(self.config, 'subproperty', None)
+
+            if prop == "left_stick":
+                base = self.rig_state._base_left_stick
+            elif prop == "right_stick":
+                base = self.rig_state._base_right_stick
+            elif prop == "left_trigger":
+                return self.rig_state._base_left_trigger
+            elif prop == "right_trigger":
+                return self.rig_state._base_right_trigger
+            else:
+                return 0
+
+            # Stick subproperties
+            if subprop == "magnitude":
+                return base.magnitude()
+            elif subprop == "direction":
+                return base.normalized() if base.magnitude() > 1e-10 else Vec2(1, 0)
+            elif subprop == "x":
+                return base.x
+            elif subprop == "y":
+                return base.y
+
+            return base.copy()
+
+        def _calculate_target_value(self) -> Any:
+            """Compute target value after operator is applied via mode_operations."""
+            operator = self.config.operator
+            value = self.config.value
+            current = self.base_value
+            mode = self.config.mode
+            prop = self.config.property
+            subprop = getattr(self.config, 'subproperty', None)
+
+            if operator == "bake":
+                return None
+
+            # Route to appropriate calculator
+            if prop in ("left_trigger", "right_trigger"):
+                return mode_operations.calculate_scalar_target(operator, value, current, mode)
+            elif subprop in ("magnitude", "x", "y"):
+                return mode_operations.calculate_scalar_target(operator, value, current, mode)
+            elif subprop == "direction":
+                return mode_operations.calculate_direction_target(operator, value, current, mode)
+            elif prop in ("left_stick", "right_stick") and subprop is None:
+                current_mag = current.magnitude() if is_vec2(current) else 0.0
+                current_dir = current.normalized() if is_vec2(current) and current_mag > EPSILON else Vec2(1, 0)
+                return mode_operations.calculate_vector_target(operator, value, current_mag, current_dir, mode)
+
+            return current
+
+        def _get_property_kind(self):
+            """Return PropertyKind for this builder's property."""
+            PropertyKind = core.PropertyKind
+            prop = self.config.property
+            subprop = getattr(self.config, 'subproperty', None)
+            if prop in ("left_trigger", "right_trigger") or subprop in ("magnitude", "x", "y"):
+                return PropertyKind.SCALAR
+            elif subprop == "direction":
+                return PropertyKind.DIRECTION
+            elif prop in ("left_stick", "right_stick") and subprop is None:
+                return PropertyKind.VECTOR
+            return PropertyKind.SCALAR
+
+    GamepadActiveBuilder = _GamepadActiveBuilder
+
+
+# ============================================================================
+# FLUENT API CLASSES (gamepad-specific, no inheritance from rig-core)
+# ============================================================================
 
 class BehaviorProxy:
     """Proxy that allows both .queue and .queue() syntax"""
@@ -59,6 +161,7 @@ class ModeProxy:
 
     def _set_implicit_layer(self, property_name: str) -> None:
         """Convert from base layer to auto-named modifier if no explicit layer name was given"""
+        from .contracts import LayerType
         if not self.builder.config.is_user_named:
             implicit_name = f"{property_name}.{self.mode}"
             self.builder.config.layer_name = implicit_name
@@ -93,8 +196,9 @@ class GamepadBuilder:
     """Main builder for gamepad operations"""
 
     def __init__(self, gamepad_state: 'GamepadState', layer: Optional[str] = None, order: Optional[int] = None):
+        from .contracts import LayerType, GamepadBuilderConfig
         self.gamepad_state = gamepad_state
-        self.config = BuilderConfig()
+        self.config = GamepadBuilderConfig()
         self._is_valid = True
         self._executed = False
         self._lifecycle_stage = None
@@ -189,6 +293,7 @@ class GamepadBuilder:
         **kwargs
     ) -> 'GamepadBuilder':
         """Set transition duration"""
+        from .contracts import validate_timing, validate_has_operation, LifecyclePhase
         all_kwargs = {'easing': easing, 'interpolation': interpolation, **kwargs}
         self.config.validate_method_kwargs('over', self._mark_invalid, **all_kwargs)
         validate_has_operation(self.config, 'over', self._mark_invalid)
@@ -206,6 +311,7 @@ class GamepadBuilder:
 
     def hold(self, ms: float) -> 'GamepadBuilder':
         """Hold the value for duration"""
+        from .contracts import validate_timing, validate_has_operation, LifecyclePhase
         validate_has_operation(self.config, 'hold', self._mark_invalid)
         self.config.hold_ms = validate_timing(ms, 'ms', method='hold', mark_invalid=self._mark_invalid)
         if self.config.revert_ms is None:
@@ -215,6 +321,7 @@ class GamepadBuilder:
 
     def then(self, callback: Callable) -> 'GamepadBuilder':
         """Add callback after current phase"""
+        from .contracts import validate_has_operation, LifecyclePhase
         validate_has_operation(self.config, 'then', self._mark_invalid)
         stage = self._lifecycle_stage or LifecyclePhase.OVER
         self.config.then_callbacks.append((stage, callback))
@@ -230,6 +337,7 @@ class GamepadBuilder:
         **kwargs
     ) -> 'GamepadBuilder':
         """Revert to base value"""
+        from .contracts import validate_timing, LifecyclePhase
         all_kwargs = {'easing': easing, 'interpolation': interpolation, **kwargs}
         self.config.validate_method_kwargs('revert', self._mark_invalid, **all_kwargs)
 
@@ -330,11 +438,13 @@ class GamepadBuilder:
         self.config.validate_mode(self._mark_invalid)
         self._calculate_rate_durations()
 
-        active = ActiveBuilder(self.config, self.gamepad_state, self.is_base_layer)
+        active = GamepadActiveBuilder(self.config, self.gamepad_state, self.is_base_layer)
         self.gamepad_state.add_builder(active)
 
     def _calculate_rate_durations(self):
         """Calculate durations from rate parameters"""
+        from .core import Vec2, is_vec2
+
         if self.config.property is None or self.config.operator is None:
             return
 
@@ -342,12 +452,13 @@ class GamepadBuilder:
             current_value = self._get_base_value()
             target_value = self._calculate_target_value(current_value)
 
+            rate_utils = _core.rate_utils
+
             if self.config.over_rate is not None:
                 prop = self.config.property
                 subprop = self.config.subproperty
 
                 if prop in ("left_trigger", "right_trigger") or subprop in ("magnitude", "x", "y"):
-                    # Scalar rate
                     self.config.over_ms = rate_utils.calculate_speed_duration(
                         current_value if isinstance(current_value, (int, float)) else 0,
                         target_value if isinstance(target_value, (int, float)) else 0,
@@ -366,7 +477,6 @@ class GamepadBuilder:
                             angle, self.config.over_rate
                         )
                 elif prop in ("left_stick", "right_stick") and subprop is None:
-                    # Vec2 stick rate
                     cur = current_value if is_vec2(current_value) else Vec2(0, 0)
                     tgt = target_value if is_vec2(target_value) else Vec2(0, 0)
                     self.config.over_ms = rate_utils.calculate_position_duration(
@@ -374,7 +484,6 @@ class GamepadBuilder:
                     )
 
             if self.config.revert_rate is not None:
-                # Mirror logic for revert (swap current/target)
                 prop = self.config.property
                 subprop = self.config.subproperty
 
@@ -398,6 +507,7 @@ class GamepadBuilder:
 
     def _get_base_value(self) -> Any:
         """Get current base value for this property"""
+        from .core import Vec2
         prop = self.config.property
         subprop = self.config.subproperty
 
@@ -431,6 +541,7 @@ class GamepadBuilder:
 
     def _calculate_target_value(self, current: Any = None) -> Any:
         """Calculate target value after operator is applied"""
+        from .core import Vec2, is_vec2
         if current is None:
             current = self._get_base_value()
 
@@ -440,7 +551,6 @@ class GamepadBuilder:
         subprop = self.config.subproperty
 
         if prop in ("left_trigger", "right_trigger") or subprop in ("magnitude", "x", "y"):
-            # Scalar target
             if operator == "to":
                 return value
             elif operator in ("by", "add"):
@@ -449,18 +559,17 @@ class GamepadBuilder:
             if operator == "to":
                 return Vec2.from_tuple(value).normalized() if isinstance(value, tuple) else value
             elif operator in ("by", "add"):
-                # Rotation by degrees
                 angle_deg = value
                 if is_vec2(current):
-                    angle_rad = math.radians(angle_deg)
-                    cos_a = math.cos(angle_rad)
-                    sin_a = math.sin(angle_rad)
+                    import math as _math
+                    angle_rad = _math.radians(angle_deg)
+                    cos_a = _math.cos(angle_rad)
+                    sin_a = _math.sin(angle_rad)
                     new_x = current.x * cos_a - current.y * sin_a
                     new_y = current.x * sin_a + current.y * cos_a
                     return Vec2(new_x, new_y).normalized()
                 return current
         elif prop in ("left_stick", "right_stick") and subprop is None:
-            # Vec2 stick target
             if operator == "to":
                 return Vec2.from_tuple(value) if isinstance(value, tuple) else value
             elif operator in ("by", "add"):
@@ -481,6 +590,7 @@ class StickPropertyBuilder:
     """Builder for stick (Vec2) properties"""
 
     def __init__(self, gamepad_builder: GamepadBuilder, property_name: str):
+        from .contracts import LayerType
         self.gamepad_builder = gamepad_builder
         self.property_name = property_name
         self.gamepad_builder.config.property = property_name
@@ -492,6 +602,7 @@ class StickPropertyBuilder:
 
     def _set_implicit_layer_if_needed(self, mode: str) -> None:
         """Convert from base layer to auto-named modifier if mode is added without explicit layer name"""
+        from .contracts import LayerType
         if not self.gamepad_builder.config.is_user_named:
             implicit_name = f"{self.property_name}.{mode}"
             self.gamepad_builder.config.layer_name = implicit_name
@@ -588,6 +699,7 @@ class TriggerPropertyBuilder:
     """Builder for trigger (scalar) properties"""
 
     def __init__(self, gamepad_builder: GamepadBuilder, property_name: str):
+        from .contracts import LayerType
         self.gamepad_builder = gamepad_builder
         self.property_name = property_name
         self.gamepad_builder.config.property = property_name
@@ -599,6 +711,7 @@ class TriggerPropertyBuilder:
 
     def _set_implicit_layer_if_needed(self, mode: str) -> None:
         """Convert from base layer to auto-named modifier if mode is added without explicit layer name"""
+        from .contracts import LayerType
         if not self.gamepad_builder.config.is_user_named:
             implicit_name = f"{self.property_name}.{mode}"
             self.gamepad_builder.config.layer_name = implicit_name
@@ -670,12 +783,14 @@ class ScalarPropertyBuilder:
     """Builder for scalar subproperties (magnitude, x, y)"""
 
     def __init__(self, gamepad_builder: GamepadBuilder, parent_property: str, subproperty: str):
+        from .contracts import LayerType
         self.gamepad_builder = gamepad_builder
         self.parent_property = parent_property
         self.subproperty = subproperty
 
     def _set_implicit_layer_if_needed(self, mode: str) -> None:
         """Convert from base layer to auto-named modifier if mode is added without explicit layer name"""
+        from .contracts import LayerType
         if not self.gamepad_builder.config.is_user_named:
             implicit_name = f"{self.parent_property}.{self.subproperty}.{mode}"
             self.gamepad_builder.config.layer_name = implicit_name
@@ -748,6 +863,7 @@ class DirectionPropertyBuilder:
 
     def _set_implicit_layer_if_needed(self, mode: str) -> None:
         """Convert from base layer to auto-named modifier if mode is added without explicit layer name"""
+        from .contracts import LayerType
         if not self.gamepad_builder.config.is_user_named:
             implicit_name = f"{self.parent_property}.direction.{mode}"
             self.gamepad_builder.config.layer_name = implicit_name
@@ -809,271 +925,3 @@ class DirectionPropertyBuilder:
                 result._property_builder = self
             return result
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
-
-
-# ============================================================================
-# ACTIVE BUILDER (executing in the state manager)
-# ============================================================================
-
-class ActiveBuilder:
-    """An active builder being executed in the state manager"""
-
-    def __init__(self, config: BuilderConfig, gamepad_state: 'GamepadState', is_base_layer: bool):
-        self.config = config
-        self.gamepad_state = gamepad_state
-        self.is_base_layer = is_base_layer
-        self.layer = config.layer_name
-        self.creation_time = time.perf_counter()
-
-        # Back-reference to containing group (set by LayerGroup.add_builder)
-        self.group: Optional['LayerGroup'] = None
-
-        # For base layers, always use override mode to store absolute result values
-        if config.mode is None:
-            config.mode = "override"
-
-        self.group_lifecycle: Optional[Lifecycle] = None
-        self.group_base_value: Optional[Any] = None
-        self.group_target_value: Optional[Any] = None
-
-        self._marked_for_removal: bool = False
-
-        self.lifecycle = Lifecycle(is_modifier_layer=not is_base_layer)
-        self.lifecycle.over_ms = config.over_ms
-        self.lifecycle.over_easing = config.over_easing
-        self.lifecycle.hold_ms = config.hold_ms
-        self.lifecycle.revert_ms = config.revert_ms
-        self.lifecycle.revert_easing = config.revert_easing
-
-        for stage, callback in config.then_callbacks:
-            self.lifecycle.add_callback(stage, callback)
-
-        # Auto-default to slerp for direction rotation (lerp collapses through zero at 180°)
-        if (config.subproperty == "direction" and
-            config.operator in ("by", "add") and
-            config.over_ms is not None and
-            config.over_ms > 0):
-            if config.over_interpolation == "lerp":
-                config.over_interpolation = "slerp"
-            if config.revert_interpolation == "lerp":
-                config.revert_interpolation = "slerp"
-
-        # Calculate base and target values
-        if config.operator == "to":
-            self.base_value = self._get_current_or_base_value()
-        elif config.operator in ("by", "add"):
-            if is_base_layer:
-                self.base_value = self._get_current_or_base_value()
-            else:
-                self.base_value = self._get_base_value()
-        else:
-            if is_base_layer:
-                self.base_value = self._get_current_or_base_value()
-            else:
-                self.base_value = self._get_base_value()
-
-        self.target_value = self._calculate_target_value()
-
-    def __repr__(self) -> str:
-        phase = self.lifecycle.phase if self.lifecycle and self.lifecycle.phase else "instant"
-        return f"<ActiveBuilder '{self.layer}' {self.config.property}.{self.config.operator}({self.target_value}) mode={self.config.mode} phase={phase}>"
-
-    @property
-    def time_alive(self) -> float:
-        return time.perf_counter() - self.creation_time
-
-    def _get_current_or_base_value(self) -> Any:
-        """Get current animated value if mid-transition, otherwise base value."""
-        layer = self.config.layer_name
-        if layer in self.gamepad_state._layer_groups:
-            group = self.gamepad_state._layer_groups[layer]
-            if group.is_base and group.builders:
-                value = group.get_current_value()
-                if value is not None:
-                    return value
-        return self._get_base_value()
-
-    def _get_base_value(self) -> Any:
-        """Get current base value for this property"""
-        prop = self.config.property
-        subprop = self.config.subproperty
-
-        if prop == "left_stick":
-            base = self.gamepad_state._base_left_stick
-        elif prop == "right_stick":
-            base = self.gamepad_state._base_right_stick
-        elif prop == "left_trigger":
-            return self.gamepad_state._base_left_trigger
-        elif prop == "right_trigger":
-            return self.gamepad_state._base_right_trigger
-        else:
-            return 0
-
-        # Stick subproperties
-        if subprop == "magnitude":
-            return base.magnitude()
-        elif subprop == "direction":
-            return base.normalized() if base.magnitude() > 1e-10 else Vec2(1, 0)
-        elif subprop == "x":
-            return base.x
-        elif subprop == "y":
-            return base.y
-
-        return base.copy()
-
-    def _calculate_target_value(self) -> Any:
-        """Calculate target value after operator is applied"""
-        operator = self.config.operator
-        value = self.config.value
-        current = self.base_value
-        mode = self.config.mode
-        prop = self.config.property
-        subprop = self.config.subproperty
-
-        if operator == "bake":
-            return None
-
-        # Route to appropriate calculator
-        if prop in ("left_trigger", "right_trigger"):
-            return mode_operations.calculate_scalar_target(operator, value, current, mode)
-        elif subprop in ("magnitude", "x", "y"):
-            return mode_operations.calculate_scalar_target(operator, value, current, mode)
-        elif subprop == "direction":
-            return mode_operations.calculate_direction_target(operator, value, current, mode)
-        elif prop in ("left_stick", "right_stick") and subprop is None:
-            return mode_operations.calculate_position_target(operator, value, current, mode)
-
-        return current
-
-    def advance(self, current_time: float) -> tuple[str, list]:
-        """Advance this builder forward in time."""
-        phase_transitions = []
-
-        if self.group_lifecycle:
-            self.group_lifecycle.advance(current_time)
-            if self.group_lifecycle.is_complete():
-                if self.group_lifecycle.has_reverted():
-                    self._marked_for_removal = True
-                self.group_lifecycle = None
-                return (None, [])
-
-        old_phase = self.lifecycle.phase
-        self.lifecycle.advance(current_time)
-        new_phase = self.lifecycle.phase
-
-        if old_phase != new_phase and old_phase is not None:
-            phase_transitions.append((self, old_phase))
-
-        return (old_phase if old_phase != new_phase else None, phase_transitions)
-
-    def _get_own_value(self) -> Any:
-        """Get just this builder's own value
-
-        The returned value depends on mode:
-        - offset: returns contribution value to add
-        - override: returns absolute value to use
-        - scale: returns multiplier to apply
-        """
-        current_time = time.perf_counter()
-        phase, progress = self.lifecycle.advance(current_time)
-        mode = self.config.mode
-        prop = self.config.property
-        subprop = self.config.subproperty
-
-        # Scalar properties (triggers, magnitude, x, y)
-        if prop in ("left_trigger", "right_trigger") or subprop in ("magnitude", "x", "y"):
-            if mode == "scale":
-                neutral = 1.0
-            elif mode == "offset":
-                neutral = 0.0
-            else:
-                neutral = self.base_value
-
-            return PropertyAnimator.animate_scalar(
-                neutral, self.target_value, phase, progress, self.lifecycle.has_reverted()
-            )
-
-        # Direction subproperty
-        elif subprop == "direction":
-            interpolation = self.config.over_interpolation
-            if phase == LifecyclePhase.REVERT:
-                interpolation = self.config.revert_interpolation
-
-            if mode == "offset":
-                if isinstance(self.target_value, (int, float)):
-                    return PropertyAnimator.animate_scalar(
-                        0.0, self.target_value, phase, progress, self.lifecycle.has_reverted()
-                    )
-                else:
-                    return PropertyAnimator.animate_direction(
-                        self.base_value, self.target_value, phase, progress,
-                        self.lifecycle.has_reverted(), interpolation
-                    )
-            elif mode == "scale":
-                return PropertyAnimator.animate_scalar(
-                    1.0, self.target_value, phase, progress, self.lifecycle.has_reverted()
-                )
-            else:  # override
-                return PropertyAnimator.animate_direction(
-                    self.base_value, self.target_value, phase, progress,
-                    self.lifecycle.has_reverted(), interpolation
-                )
-
-        # Vec2 stick properties (left_stick, right_stick without subproperty)
-        elif prop in ("left_stick", "right_stick") and subprop is None:
-            if mode == "scale":
-                return PropertyAnimator.animate_scalar(
-                    1.0, self.target_value, phase, progress, self.lifecycle.has_reverted()
-                )
-            elif mode == "offset":
-                neutral = Vec2(0, 0)
-                if phase is None:
-                    if self.lifecycle.has_reverted():
-                        return neutral
-                    return self.target_value
-                elif phase == LifecyclePhase.OVER:
-                    return self.target_value * progress
-                elif phase == LifecyclePhase.HOLD:
-                    return self.target_value
-                elif phase == LifecyclePhase.REVERT:
-                    return self.target_value * (1.0 - progress)
-            else:  # override
-                if phase is None:
-                    if self.lifecycle.has_reverted():
-                        return self.base_value
-                    return self.target_value
-                elif phase == LifecyclePhase.OVER:
-                    return Vec2(
-                        self.base_value.x + (self.target_value.x - self.base_value.x) * progress,
-                        self.base_value.y + (self.target_value.y - self.base_value.y) * progress
-                    )
-                elif phase == LifecyclePhase.HOLD:
-                    return self.target_value
-                elif phase == LifecyclePhase.REVERT:
-                    return Vec2(
-                        self.target_value.x + (self.base_value.x - self.target_value.x) * progress,
-                        self.target_value.y + (self.base_value.y - self.target_value.y) * progress
-                    )
-
-        return self.target_value
-
-    def get_interpolated_value(self) -> Any:
-        """Get current interpolated value for this builder"""
-        if self.group_lifecycle and not self.group_lifecycle.is_complete():
-            current_time = time.perf_counter()
-            phase, progress = self.group_lifecycle.advance(current_time)
-
-            # Animate between group_base_value and group_target_value
-            if is_vec2(self.group_base_value) and is_vec2(self.group_target_value):
-                return PropertyAnimator.animate_direction(
-                    self.group_base_value, self.group_target_value,
-                    phase, progress, self.group_lifecycle.has_reverted(),
-                    self.config.revert_interpolation
-                )
-            elif isinstance(self.group_base_value, (int, float)) and isinstance(self.group_target_value, (int, float)):
-                return PropertyAnimator.animate_scalar(
-                    self.group_base_value, self.group_target_value,
-                    phase, progress, self.group_lifecycle.has_reverted()
-                )
-
-        return self._get_own_value()

@@ -12,20 +12,55 @@ Example usage:
 from typing import Optional
 import os
 import time
-from .state import GamepadState
-from .builder import GamepadBuilder
-from .contracts import (
-    validate_timing,
-    GamepadRigAttributeError,
-    find_closest_match,
-    VALID_RIG_METHODS,
-    VALID_RIG_PROPERTIES,
-)
 
-_global_state: Optional[GamepadState] = None
+# Module-level references (set by _build_classes)
+GamepadState = None
+GamepadBuilder = None
+GamepadBuilderConfig = None
+LifecyclePhase = None
+LayerType = None
+
+_core = None
+_global_state = None
+_initialized = False
 
 
-def _get_global_state() -> GamepadState:
+def _on_ready():
+    global _core, _initialized
+    from talon import actions
+    _core = actions.user.rig_core()
+
+    # Build all classes that depend on rig-core
+    from . import core as core_module
+    from . import contracts
+    from . import mode_operations
+    from . import layer_group
+    from . import state
+    from . import builder
+
+    core_module._build_classes(_core)
+    contracts._build_classes(_core)
+    mode_operations._build_classes(_core)
+    layer_group._build_classes(_core)
+    state._build_classes(_core)
+    builder._build_classes(_core)
+
+    # Update module-level references
+    global GamepadState, GamepadBuilder, GamepadBuilderConfig, LifecyclePhase, LayerType
+    GamepadState = state.GamepadState
+    GamepadBuilder = builder.GamepadBuilder
+    GamepadBuilderConfig = contracts.GamepadBuilderConfig
+    LifecyclePhase = contracts.LifecyclePhase
+    LayerType = contracts.LayerType
+
+    _initialized = True
+
+
+from talon import app
+app.register("ready", _on_ready)
+
+
+def _get_global_state():
     """Get or create the global gamepad state"""
     global _global_state
     if _global_state is None:
@@ -36,7 +71,7 @@ def _get_global_state() -> GamepadState:
 class StopHandle:
     """Handle returned by stop() that allows adding callbacks via .then()"""
 
-    def __init__(self, state: GamepadState):
+    def __init__(self, state):
         self._state = state
 
     def then(self, callback):
@@ -91,7 +126,7 @@ class Rig:
     # LAYER METHOD
     # ========================================================================
 
-    def layer(self, name: str, order: Optional[int] = None) -> GamepadBuilder:
+    def layer(self, name: str, order: Optional[int] = None):
         """Create a user layer
 
         Args:
@@ -143,6 +178,7 @@ class Rig:
         Returns:
             StopHandle: Handle that allows chaining .then(callback)
         """
+        from .contracts import validate_timing
         ms = validate_timing(ms, 'ms', method='stop')
         self._state.stop(transition_ms=ms, easing=easing)
         return StopHandle(self._state)
@@ -173,6 +209,12 @@ class Rig:
 
     def __getattr__(self, name: str):
         """Handle unknown attributes with helpful error messages"""
+        from .contracts import (
+            GamepadRigAttributeError,
+            find_closest_match,
+            VALID_RIG_METHODS,
+            VALID_RIG_PROPERTIES,
+        )
         all_valid = VALID_RIG_METHODS + VALID_RIG_PROPERTIES
 
         suggestion = find_closest_match(name, all_valid)
@@ -190,11 +232,11 @@ class Rig:
 class _BehaviorAccessor:
     """Helper to allow behavior to be used as property or method"""
 
-    def __init__(self, state: GamepadState, behavior: str):
+    def __init__(self, state, behavior: str):
         self._state = state
         self._behavior = behavior
 
-    def __call__(self, *args) -> GamepadBuilder:
+    def __call__(self, *args):
         """Called when used as method: rig.stack(3)"""
         builder = GamepadBuilder(self._state)
         builder.config.behavior = self._behavior

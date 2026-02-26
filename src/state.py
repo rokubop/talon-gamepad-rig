@@ -1,996 +1,588 @@
-"""State management for gamepad rig
+"""State management for gamepad rig - subclasses BaseRigState from rig-core
 
-Manages gamepad state with:
-- Base state (baked stick/trigger values)
-- Layer groups (containers for builders)
-- Frame loop for continuous updates
-- Integration with vgamepad backend
+Implements the 8 abstract methods for gamepad-specific behavior:
+- _get_or_create_group
+- _compute_current_state
+- _apply_group
+- _tick_frame
+- _bake_group_to_base
+- _bake_property
+- stop
+- _create_active_builder
 """
 
-import time
-from typing import Optional, Any, Union, TYPE_CHECKING
-from talon import cron
-from .core import Vec2, is_vec2, clamp_stick_vec2, clamp_trigger_value, clamp_stick_value, EPSILON
-
-_cron = cron
-
-
-def _set_test_apis(cron_mod=None):
-    """Swap cron implementation for testing."""
-    global _cron
-    if cron_mod is not None:
-        _cron = cron_mod
-
-
-def _reset_test_apis():
-    """Restore real implementations."""
-    global _cron
-    _cron = cron
-from .layer_group import LayerGroup
-from .lifecycle import Lifecycle, LifecyclePhase
-from .contracts import BuilderConfig, ConfigError, LayerType, validate_timing
-from . import mode_operations
-
-if TYPE_CHECKING:
-    from .builder import ActiveBuilder
-
-
-class GamepadState:
-    """Core state manager for the gamepad rig"""
-
-    def __init__(self):
-        # Base state (baked values) - neutral is (0, 0) for sticks, 0 for triggers
-        self._base_left_stick: Vec2 = Vec2(0, 0)
-        self._base_right_stick: Vec2 = Vec2(0, 0)
-        self._base_left_trigger: float = 0.0
-        self._base_right_trigger: float = 0.0
-
-        # Layer groups (layer_name -> LayerGroup)
-        self._layer_groups: dict[str, LayerGroup] = {}
-
-        # Layer order tracking
-        self._layer_orders: dict[str, int] = {}
-
-        # Frame loop
-        self._frame_loop_job: Optional[Any] = None
-        self._last_frame_time: Optional[float] = None
-
-        # Throttle tracking
-        self._throttle_times: dict[str, float] = {}
-
-        # Auto-order counter
-        self._next_auto_order: int = 0
-
-        # Rate-based builder cache
-        self._rate_builder_cache: dict[tuple, tuple['ActiveBuilder', Any]] = {}
-
-        # Debounce pending builders
-        self._debounce_pending: dict[str, tuple[float, 'BuilderConfig', bool, Optional[Any]]] = {}
-
-        # Stop callbacks
-        self._stop_callbacks: list = []
-
-    def __repr__(self) -> str:
-        lines = [
-            "GamepadState:",
-            f"  left_stick = ({self.left_stick.x:.2f}, {self.left_stick.y:.2f})",
-            f"  right_stick = ({self.right_stick.x:.2f}, {self.right_stick.y:.2f})",
-            f"  left_trigger = {self.left_trigger:.2f}",
-            f"  right_trigger = {self.right_trigger:.2f}",
-            f"  layers = {list(self._layer_groups.keys())}",
-            f"  frame_loop_active = {self._frame_loop_job is not None}",
-        ]
-        return "\n".join(lines)
-
-    def __str__(self) -> str:
-        return self.__repr__()
-
-    # ========================================================================
-    # KEY HELPERS
-    # ========================================================================
-
-    def _get_queue_key(self, layer: str, builder: 'ActiveBuilder') -> str:
-        return f"{layer}_{builder.config.property}_{builder.config.operator}"
-
-    def _get_throttle_key(self, layer: str, builder_or_config: Union['ActiveBuilder', 'BuilderConfig']) -> str:
-        config = builder_or_config if isinstance(builder_or_config, BuilderConfig) else builder_or_config.config
-        return f"{layer}_{config.property}_{config.operator}"
-
-    def _get_rate_cache_key(self, layer: str, config: 'BuilderConfig') -> Optional[tuple]:
-        if config.over_rate is None and config.revert_rate is None:
-            return None
-        target = config.value
-        if isinstance(target, tuple):
-            normalized = tuple(round(v, 3) for v in target)
-        elif isinstance(target, (int, float)):
-            normalized = round(target, 3)
-        else:
-            normalized = target
-        return (layer, config.property, config.operator, config.mode, normalized)
-
-    def _get_debounce_key(self, layer: str, config: 'BuilderConfig') -> str:
-        return f"{layer}_{config.property}_{config.operator}"
-
-    # ========================================================================
-    # PUBLIC STATE ACCESS (computed from base + layers)
-    # ========================================================================
-
-    @property
-    def left_stick(self) -> Vec2:
-        """Get current left stick position (base + all layers)"""
-        lt, _, _, _ = self._compute_current_state()
-        return clamp_stick_vec2(lt)
-
-    @property
-    def right_stick(self) -> Vec2:
-        """Get current right stick position (base + all layers)"""
-        _, rt, _, _ = self._compute_current_state()
-        return clamp_stick_vec2(rt)
-
-    @property
-    def left_trigger(self) -> float:
-        """Get current left trigger value (base + all layers)"""
-        _, _, lt, _ = self._compute_current_state()
-        return clamp_trigger_value(lt)
-
-    @property
-    def right_trigger(self) -> float:
-        """Get current right trigger value (base + all layers)"""
-        _, _, _, rt = self._compute_current_state()
-        return clamp_trigger_value(rt)
-
-    @property
-    def layers(self) -> list[str]:
-        """Get list of active layer names"""
-        return list(self._layer_groups.keys())
-
-    # ========================================================================
-    # STOP / RESET
-    # ========================================================================
-
-    def stop(self, transition_ms: Optional[float] = None, easing: str = "linear"):
-        """Stop all gamepad activity"""
-        if transition_ms is not None and transition_ms > 0:
-            # Smooth stop: revert all layers and base to neutral
-            # Create revert builders for any non-neutral base values
-            if (self._base_left_stick.x != 0 or self._base_left_stick.y != 0):
-                from .builder import GamepadBuilder
-                b = GamepadBuilder(self)
-                b.config.layer_name = "base.left_stick"
-                b.config.layer_type = LayerType.BASE
-                b.config.property = "left_stick"
-                b.config.operator = "to"
-                b.config.value = (0, 0)
-                b.config.mode = "override"
-                b.config.over_ms = transition_ms
-                b.config.over_easing = easing
-                b.run()
-
-            if (self._base_right_stick.x != 0 or self._base_right_stick.y != 0):
-                from .builder import GamepadBuilder
-                b = GamepadBuilder(self)
-                b.config.layer_name = "base.right_stick"
-                b.config.layer_type = LayerType.BASE
-                b.config.property = "right_stick"
-                b.config.operator = "to"
-                b.config.value = (0, 0)
-                b.config.mode = "override"
-                b.config.over_ms = transition_ms
-                b.config.over_easing = easing
-                b.run()
-
-            if self._base_left_trigger != 0:
-                from .builder import GamepadBuilder
-                b = GamepadBuilder(self)
-                b.config.layer_name = "base.left_trigger"
-                b.config.layer_type = LayerType.BASE
-                b.config.property = "left_trigger"
-                b.config.operator = "to"
-                b.config.value = 0.0
-                b.config.mode = "override"
-                b.config.over_ms = transition_ms
-                b.config.over_easing = easing
-                b.run()
-
-            if self._base_right_trigger != 0:
-                from .builder import GamepadBuilder
-                b = GamepadBuilder(self)
-                b.config.layer_name = "base.right_trigger"
-                b.config.layer_type = LayerType.BASE
-                b.config.property = "right_trigger"
-                b.config.operator = "to"
-                b.config.value = 0.0
-                b.config.mode = "override"
-                b.config.over_ms = transition_ms
-                b.config.over_easing = easing
-                b.run()
-
-            # Trigger revert on all user layers
-            for layer_name in list(self._layer_groups.keys()):
-                group = self._layer_groups[layer_name]
-                if not group.is_base:
-                    self.trigger_revert(layer_name, transition_ms, easing)
-
-            return
-
-        # Instant stop
-        self._base_left_stick = Vec2(0, 0)
-        self._base_right_stick = Vec2(0, 0)
-        self._base_left_trigger = 0.0
-        self._base_right_trigger = 0.0
-
-        # Cancel debounces
-        for key, (_, _, _, cron_job) in self._debounce_pending.items():
-            if cron_job is not None:
-                _cron.cancel(cron_job)
-        self._debounce_pending.clear()
-
-        # Clear all layers
-        self._layer_groups.clear()
-        self._layer_orders.clear()
-        self._throttle_times.clear()
-        self._rate_builder_cache.clear()
-
-        # Stop frame loop
-        self._stop_frame_loop()
-
-        # Apply neutral state to gamepad
-        self._apply_to_hardware(Vec2(0, 0), Vec2(0, 0), 0.0, 0.0)
-
-    def reset(self):
-        """Reset everything to default state"""
-        self.stop()
-        self._next_auto_order = 0
-
-    def add_stop_callback(self, callback):
-        """Add a callback to be executed when the frame loop stops"""
-        self._stop_callbacks.append(callback)
-
-    # ========================================================================
-    # TRIGGER REVERT
-    # ========================================================================
-
-    def trigger_revert(self, layer_name: str, revert_ms: Optional[float] = None, easing: str = "linear"):
-        """Trigger revert on a layer or property
-
-        Args:
-            layer_name: Layer to revert
-            revert_ms: Duration in ms
-            easing: Easing function
-        """
-        if layer_name not in self._layer_groups:
-            print(f"[REVERT] layer '{layer_name}' not in _layer_groups")
-            return
-
-        group = self._layer_groups[layer_name]
-        current_time = time.perf_counter()
-
-        if group.builders:
-            for builder in group.builders:
-                builder.lifecycle.trigger_revert(current_time, revert_ms, easing)
-        else:
-            # No active builders, but group has accumulated_value.
-            # Create a revert builder to transition accumulated_value to zero.
-            if not group._is_reverted_to_zero():
-                from .builder import ActiveBuilder
-
-                config = BuilderConfig()
-                config.layer_name = layer_name
-                config.property = group.property
-                config.subproperty = group.subproperty
-                config.mode = group.mode
-                config.operator = "to"
-
-                # Set target value to current accumulated value so the builder
-                # computes the correct base→target range for its animation.
-                if isinstance(group.accumulated_value, Vec2):
-                    config.value = (group.accumulated_value.x, group.accumulated_value.y)
-                else:
-                    config.value = group.accumulated_value
-
-                # No over phase — immediately start reverting
-                config.over_ms = 0
-                config.revert_ms = revert_ms if revert_ms is not None else 0
-                config.revert_easing = easing
-
-                # Save accumulated before clearing — needed to override target below
-                saved_accumulated = group.accumulated_value.copy() if isinstance(group.accumulated_value, Vec2) else group.accumulated_value
-
-                # Zero out accumulated value — the revert builder takes sole
-                # ownership of the value during its transition back to zero.
-                if isinstance(group.accumulated_value, Vec2):
-                    group.accumulated_value = Vec2(0, 0)
-                else:
-                    group.accumulated_value = 0.0
-
-                # Create the builder
-                active = ActiveBuilder(config, self, False)
-
-                # Override target_value — _calculate_target_value's offset mode
-                # does (value - base) which is wrong here because base_value is
-                # the hardware base, not the layer's neutral offset (zero).
-                # The correct target is simply the accumulated value itself.
-                active.target_value = saved_accumulated
-
-                # Configure lifecycle to start directly in REVERT phase
-                active.lifecycle.start(current_time)
-                active.lifecycle.phase = LifecyclePhase.REVERT
-                active.lifecycle.phase_start_time = current_time
-
-                group.add_builder(active)
-
-        self._ensure_frame_loop_running()
-
-    # ========================================================================
-    # ADD BUILDER (the main pipeline)
-    # ========================================================================
-
-    def add_builder(self, builder: 'ActiveBuilder'):
-        """Add a builder to its layer group"""
-        layer = builder.config.layer_name
-
-        # Handle bake operation
-        if builder.config.operator == "bake":
-            self._bake_property(builder.config.property, layer if not builder.config.is_base_layer() else None)
-            return
-
-        # Handle debounce
-        if builder.config.behavior == "debounce":
-            self._apply_debounce_behavior(builder, layer)
-            return
-
-        # Rate cache check
-        should_skip = self._check_and_update_rate_cache(builder, layer)
-        if should_skip:
-            return
-
-        # Get or create group
-        group = self._get_or_create_group(builder)
-
-        # Apply behavior
-        behavior = builder.config.get_effective_behavior()
-
-        if behavior == "throttle":
-            if self._apply_throttle_behavior(builder, layer):
+from typing import Optional, Any, TYPE_CHECKING
+
+# Module-level reference set by _build_classes
+GamepadState = None
+
+# Module-level core reference for use by the class
+_core = None
+
+
+def _build_classes(core):
+    global GamepadState, _core
+    _core = core
+
+    from .core import (
+        Vec2, is_vec2, clamp_stick_vec2, clamp_trigger_value, clamp_stick_value, EPSILON,
+    )
+    from .layer_group import GamepadLayerGroup
+    from . import mode_operations
+
+    class _GamepadState(core.BaseRigState):
+        """Core state manager for the gamepad rig"""
+
+        def __init__(self):
+            super().__init__()
+            # Base state (baked values) - neutral is (0, 0) for sticks, 0 for triggers
+            self._base_left_stick = Vec2(0, 0)
+            self._base_right_stick = Vec2(0, 0)
+            self._base_left_trigger: float = 0.0
+            self._base_right_trigger: float = 0.0
+
+        def __repr__(self) -> str:
+            lines = [
+                "GamepadState:",
+                f"  left_stick = ({self.left_stick.x:.2f}, {self.left_stick.y:.2f})",
+                f"  right_stick = ({self.right_stick.x:.2f}, {self.right_stick.y:.2f})",
+                f"  left_trigger = {self.left_trigger:.2f}",
+                f"  right_trigger = {self.right_trigger:.2f}",
+                f"  layers = {list(self._layer_groups.keys())}",
+                f"  frame_loop_active = {self._frame_loop_job is not None}",
+            ]
+            return "\n".join(lines)
+
+        def __str__(self) -> str:
+            return self.__repr__()
+
+        # ========================================================================
+        # PUBLIC STATE ACCESS (computed from base + layers)
+        # ========================================================================
+
+        @property
+        def left_stick(self):
+            """Get current left stick position (base + all layers)"""
+            lt, _, _, _ = self._compute_current_state()
+            return clamp_stick_vec2(lt)
+
+        @property
+        def right_stick(self):
+            """Get current right stick position (base + all layers)"""
+            _, rt, _, _ = self._compute_current_state()
+            return clamp_stick_vec2(rt)
+
+        @property
+        def left_trigger(self) -> float:
+            """Get current left trigger value (base + all layers)"""
+            _, _, lt, _ = self._compute_current_state()
+            return clamp_trigger_value(lt)
+
+        @property
+        def right_trigger(self) -> float:
+            """Get current right trigger value (base + all layers)"""
+            _, _, _, rt = self._compute_current_state()
+            return clamp_trigger_value(rt)
+
+        # ========================================================================
+        # CONFIG FACTORY (override)
+        # ========================================================================
+
+        def _create_config(self):
+            """Create a GamepadBuilderConfig instance"""
+            from .contracts import GamepadBuilderConfig
+            return GamepadBuilderConfig()
+
+        # ========================================================================
+        # STOP / RESET (abstract impl)
+        # ========================================================================
+
+        def stop(self, transition_ms: Optional[float] = None, easing: str = "linear"):
+            """Stop all gamepad activity"""
+            if transition_ms is not None and transition_ms > 0:
+                from .contracts import LayerType
+                # Smooth stop: revert all layers and base to neutral
+                if (self._base_left_stick.x != 0 or self._base_left_stick.y != 0):
+                    from .builder import GamepadBuilder
+                    b = GamepadBuilder(self)
+                    b.config.layer_name = "base.left_stick"
+                    b.config.layer_type = LayerType.BASE
+                    b.config.property = "left_stick"
+                    b.config.operator = "to"
+                    b.config.value = (0, 0)
+                    b.config.mode = "override"
+                    b.config.over_ms = transition_ms
+                    b.config.over_easing = easing
+                    b.run()
+
+                if (self._base_right_stick.x != 0 or self._base_right_stick.y != 0):
+                    from .builder import GamepadBuilder
+                    b = GamepadBuilder(self)
+                    b.config.layer_name = "base.right_stick"
+                    b.config.layer_type = LayerType.BASE
+                    b.config.property = "right_stick"
+                    b.config.operator = "to"
+                    b.config.value = (0, 0)
+                    b.config.mode = "override"
+                    b.config.over_ms = transition_ms
+                    b.config.over_easing = easing
+                    b.run()
+
+                if self._base_left_trigger != 0:
+                    from .builder import GamepadBuilder
+                    b = GamepadBuilder(self)
+                    b.config.layer_name = "base.left_trigger"
+                    b.config.layer_type = LayerType.BASE
+                    b.config.property = "left_trigger"
+                    b.config.operator = "to"
+                    b.config.value = 0.0
+                    b.config.mode = "override"
+                    b.config.over_ms = transition_ms
+                    b.config.over_easing = easing
+                    b.run()
+
+                if self._base_right_trigger != 0:
+                    from .builder import GamepadBuilder
+                    b = GamepadBuilder(self)
+                    b.config.layer_name = "base.right_trigger"
+                    b.config.layer_type = LayerType.BASE
+                    b.config.property = "right_trigger"
+                    b.config.operator = "to"
+                    b.config.value = 0.0
+                    b.config.mode = "override"
+                    b.config.over_ms = transition_ms
+                    b.config.over_easing = easing
+                    b.run()
+
+                # Trigger revert on all user layers
+                for layer_name in list(self._layer_groups.keys()):
+                    group = self._layer_groups[layer_name]
+                    if not group.is_base:
+                        self.trigger_revert(layer_name, transition_ms, easing)
+
                 return
 
-        if behavior == "replace":
-            self._apply_replace_behavior(builder, group)
-        elif behavior == "stack":
-            if self._apply_stack_behavior(builder, group):
+            # Instant stop
+            self._base_left_stick = Vec2(0, 0)
+            self._base_right_stick = Vec2(0, 0)
+            self._base_left_trigger = 0.0
+            self._base_right_trigger = 0.0
+
+            # Cancel debounces
+            for key, (_, _, _, cron_job) in self._debounce_pending.items():
+                if cron_job is not None:
+                    self._cancel_cron(cron_job)
+            self._debounce_pending.clear()
+
+            # Clear all layers
+            self._layer_groups.clear()
+            self._layer_orders.clear()
+            self._throttle_times.clear()
+            self._rate_builder_cache.clear()
+
+            # Stop frame loop
+            self._stop_frame_loop()
+
+            # Apply neutral state to gamepad
+            self._apply_to_hardware(Vec2(0, 0), Vec2(0, 0), 0.0, 0.0)
+
+        def reset(self):
+            """Reset everything to default state"""
+            self.stop()
+            self._next_auto_order = 0
+
+        # ========================================================================
+        # TRIGGER REVERT (override to add subproperty)
+        # ========================================================================
+
+        def trigger_revert(self, layer_name: str, revert_ms: Optional[float] = None, easing: str = "linear"):
+            """Trigger revert on a layer - gamepad override adds subproperty to config"""
+            if layer_name not in self._layer_groups:
                 return
-        elif behavior == "queue":
-            if self._apply_queue_behavior(builder, group):
-                return
 
-        group.add_builder(builder)
+            group = self._layer_groups[layer_name]
+            import time as _time
+            current_time = _time.perf_counter()
 
-        if not builder.lifecycle.is_complete():
-            self._ensure_frame_loop_running()
-        else:
-            self._finalize_builder_completion(builder, group)
-
-    def _get_or_create_group(self, builder: 'ActiveBuilder') -> 'LayerGroup':
-        """Get existing group or create new one for this builder"""
-        layer = builder.config.layer_name
-
-        if layer in self._layer_groups:
-            return self._layer_groups[layer]
-
-        group = LayerGroup(
-            layer_name=layer,
-            property=builder.config.property,
-            mode=builder.config.mode,
-            layer_type=builder.config.layer_type,
-            order=builder.config.order,
-            subproperty=builder.config.subproperty,
-        )
-
-        # Initialize base layer accumulated_value from actual base state
-        if group.is_base:
-            prop = builder.config.property
-            subprop = builder.config.subproperty
-
-            if prop == "left_stick":
-                if subprop is None:
-                    group.accumulated_value = self._base_left_stick.copy()
-                elif subprop == "magnitude":
-                    group.accumulated_value = self._base_left_stick.magnitude()
-                elif subprop == "direction":
-                    group.accumulated_value = self._base_left_stick.normalized() if self._base_left_stick.magnitude() > EPSILON else Vec2(1, 0)
-                elif subprop == "x":
-                    group.accumulated_value = self._base_left_stick.x
-                elif subprop == "y":
-                    group.accumulated_value = self._base_left_stick.y
-            elif prop == "right_stick":
-                if subprop is None:
-                    group.accumulated_value = self._base_right_stick.copy()
-                elif subprop == "magnitude":
-                    group.accumulated_value = self._base_right_stick.magnitude()
-                elif subprop == "direction":
-                    group.accumulated_value = self._base_right_stick.normalized() if self._base_right_stick.magnitude() > EPSILON else Vec2(1, 0)
-                elif subprop == "x":
-                    group.accumulated_value = self._base_right_stick.x
-                elif subprop == "y":
-                    group.accumulated_value = self._base_right_stick.y
-            elif prop == "left_trigger":
-                group.accumulated_value = self._base_left_trigger
-            elif prop == "right_trigger":
-                group.accumulated_value = self._base_right_trigger
-
-        # Initialize override mode with current computed value
-        elif builder.config.mode == "override":
-            lt, rt, ltrig, rtrig = self._compute_current_state()
-            prop = builder.config.property
-            subprop = builder.config.subproperty
-
-            if prop == "left_stick":
-                if subprop is None:
-                    group.accumulated_value = lt.copy()
-                elif subprop == "magnitude":
-                    group.accumulated_value = lt.magnitude()
-                elif subprop == "direction":
-                    group.accumulated_value = lt.normalized() if lt.magnitude() > EPSILON else Vec2(1, 0)
-                elif subprop == "x":
-                    group.accumulated_value = lt.x
-                elif subprop == "y":
-                    group.accumulated_value = lt.y
-            elif prop == "right_stick":
-                if subprop is None:
-                    group.accumulated_value = rt.copy()
-                elif subprop == "magnitude":
-                    group.accumulated_value = rt.magnitude()
-                elif subprop == "direction":
-                    group.accumulated_value = rt.normalized() if rt.magnitude() > EPSILON else Vec2(1, 0)
-                elif subprop == "x":
-                    group.accumulated_value = rt.x
-                elif subprop == "y":
-                    group.accumulated_value = rt.y
-            elif prop == "left_trigger":
-                group.accumulated_value = ltrig
-            elif prop == "right_trigger":
-                group.accumulated_value = rtrig
-
-        # Track order
-        if builder.config.order is not None:
-            self._layer_orders[layer] = builder.config.order
-        elif not builder.config.is_base_layer():
-            if layer not in self._layer_orders:
-                self._layer_orders[layer] = self._next_auto_order
-                self._next_auto_order += 1
-                group.order = self._layer_orders[layer]
-
-        self._layer_groups[layer] = group
-        return group
-
-    def _finalize_builder_completion(self, builder: 'ActiveBuilder', group: 'LayerGroup'):
-        """Handle builder completion and cleanup"""
-        layer = builder.config.layer_name
-
-        bake_result = group.on_builder_complete(builder)
-        if bake_result == "bake_to_base":
-            self._bake_group_to_base(group)
-
-        group.remove_builder(builder)
-
-        if not group.should_persist():
-            if layer in self._layer_groups:
-                del self._layer_groups[layer]
-            if layer in self._layer_orders:
-                del self._layer_orders[layer]
-
-        # Flush to hardware for instant operations (no frame loop runs)
-        lt, rt, ltrig, rtrig = self._compute_current_state()
-        self._apply_to_hardware(
-            clamp_stick_vec2(lt), clamp_stick_vec2(rt),
-            clamp_trigger_value(ltrig), clamp_trigger_value(rtrig),
-        )
-
-    # ========================================================================
-    # BEHAVIOR METHODS
-    # ========================================================================
-
-    def _apply_throttle_behavior(self, builder: 'ActiveBuilder', layer: str) -> bool:
-        """Returns True if throttled (should skip)"""
-        throttle_key = self._get_throttle_key(layer, builder)
-        has_time_arg = bool(builder.config.behavior_args)
-
-        if has_time_arg:
-            throttle_ms = builder.config.behavior_args[0]
-            if throttle_key in self._throttle_times:
-                elapsed = (time.perf_counter() - self._throttle_times[throttle_key]) * 1000
-                if elapsed < throttle_ms:
-                    return True
-            self._throttle_times[throttle_key] = time.perf_counter()
-            return False
-        else:
-            if layer in self._layer_groups:
-                group = self._layer_groups[layer]
-                active_throttled = sum(1 for b in group.builders if b.config.behavior == "throttle")
-                if active_throttled > 0:
-                    return True
-            return False
-
-    def _apply_debounce_behavior(self, builder: 'ActiveBuilder', layer: str):
-        """Schedule builder for delayed execution"""
-        if not builder.config.behavior_args:
-            raise ConfigError("debounce() requires a delay in milliseconds")
-
-        delay_ms = builder.config.behavior_args[0]
-        debounce_key = self._get_debounce_key(layer, builder.config)
-
-        if debounce_key in self._debounce_pending:
-            _, _, _, old_cron_job = self._debounce_pending[debounce_key]
-            if old_cron_job is not None:
-                _cron.cancel(old_cron_job)
-
-        target_time = time.perf_counter() + (delay_ms / 1000.0)
-
-        cron_job = None
-        if self._frame_loop_job is None:
-            def execute_debounced():
-                if debounce_key in self._debounce_pending:
-                    _, config, is_base, _ = self._debounce_pending[debounce_key]
-                    del self._debounce_pending[debounce_key]
-                    config.behavior = None
-                    config.behavior_args = ()
-                    from .builder import ActiveBuilder
-                    actual_builder = ActiveBuilder(config, self, is_base)
-                    self.add_builder(actual_builder)
-
-            cron_job = _cron.after(f"{delay_ms}ms", execute_debounced)
-
-        self._debounce_pending[debounce_key] = (target_time, builder.config, builder.config.is_base_layer(), cron_job)
-
-    def _check_and_update_rate_cache(self, builder: 'ActiveBuilder', layer: str) -> bool:
-        """Returns True if builder should be skipped"""
-        rate_cache_key = self._get_rate_cache_key(layer, builder.config)
-        if rate_cache_key is None:
-            return False
-
-        if rate_cache_key in self._rate_builder_cache:
-            cached_builder, cached_target = self._rate_builder_cache[rate_cache_key]
-            targets_match = self._targets_match(builder.target_value, cached_target)
-
-            if targets_match and layer in self._layer_groups:
-                return True
+            if group.builders:
+                for builder in group.builders:
+                    builder.lifecycle.trigger_revert(current_time, revert_ms, easing)
             else:
-                if layer in self._layer_groups:
-                    group = self._layer_groups[layer]
-                    old_current_value = group.get_current_value()
-                    if is_vec2(old_current_value):
-                        builder.base_value = Vec2(old_current_value.x, old_current_value.y)
+                # No active builders, but group has accumulated_value.
+                # Create a revert builder to transition accumulated_value to zero.
+                if not group._is_reverted_to_zero():
+                    config = self._create_config()
+                    config.layer_name = layer_name
+                    config.property = group.property
+                    config.subproperty = getattr(group, 'subproperty', None)
+                    config.mode = group.mode
+                    config.operator = "to"
+
+                    if is_vec2(group.accumulated_value):
+                        config.value = (group.accumulated_value.x, group.accumulated_value.y)
                     else:
-                        builder.base_value = old_current_value
-                    builder.target_value = builder._calculate_target_value()
+                        config.value = group.accumulated_value
 
-        self._rate_builder_cache[rate_cache_key] = (builder, builder.target_value)
-        return False
+                    config.over_ms = 0
+                    config.revert_ms = revert_ms if revert_ms is not None else 0
+                    config.revert_easing = easing
 
-    def _apply_replace_behavior(self, builder: 'ActiveBuilder', group: 'LayerGroup'):
-        """Apply replace behavior"""
-        current_value = group.get_current_value()
-        group.clear_builders()
+                    saved_accumulated = group.accumulated_value.copy() if is_vec2(group.accumulated_value) else group.accumulated_value
 
-        if not group.is_base:
-            group.accumulated_value = current_value
+                    if is_vec2(group.accumulated_value):
+                        group.accumulated_value = Vec2(0, 0)
+                    else:
+                        group.accumulated_value = 0.0
 
-        if is_vec2(current_value):
-            builder.base_value = current_value
-        elif isinstance(current_value, (int, float)):
-            builder.base_value = current_value
-        else:
-            builder.base_value = current_value
+                    active = self._create_active_builder(config, False)
+                    active.target_value = saved_accumulated
 
-        builder.target_value = builder._calculate_target_value()
+                    active.lifecycle.start(current_time)
+                    active.lifecycle.phase = core.LifecyclePhase.REVERT
+                    active.lifecycle.phase_start_time = current_time
 
-    def _apply_stack_behavior(self, builder: 'ActiveBuilder', group: 'LayerGroup') -> bool:
-        """Returns True if at stack limit"""
-        if builder.config.behavior_args:
-            max_count = builder.config.behavior_args[0]
-            if max_count > 0:
-                non_revert_builders = sum(
-                    1 for b in group.builders
-                    if not (b.lifecycle.phase == LifecyclePhase.REVERT or
-                            (b.group_lifecycle and b.group_lifecycle.phase == LifecyclePhase.REVERT))
-                )
-                accumulated_slots = 0
-                if not group.is_base and not group._is_reverted_to_zero():
-                    accumulated_slots = 1
-                if non_revert_builders + accumulated_slots >= max_count:
-                    return True
-                reverting_builders = [
-                    b for b in group.builders
-                    if (b.lifecycle.phase == LifecyclePhase.REVERT or
-                        (b.group_lifecycle and b.group_lifecycle.phase == LifecyclePhase.REVERT))
-                ]
-                for b in reverting_builders:
-                    group.remove_builder(b)
-        return False
+                    group.add_builder(active)
 
-    def _apply_queue_behavior(self, builder: 'ActiveBuilder', group: 'LayerGroup') -> bool:
-        """Returns True if enqueued"""
-        if builder.config.behavior_args:
-            max_count = builder.config.behavior_args[0]
-            total = len(group.builders) + len(group.pending_queue)
-            if total >= max_count:
-                return True
+            self._ensure_frame_loop_running()
 
-        if group.is_queue_active or len(group.pending_queue) > 0:
-            def execute_callback():
-                builder.creation_time = time.perf_counter()
-                builder.lifecycle.started = False
-                if group.is_base:
-                    builder.base_value = builder._get_current_or_base_value()
-                    builder.target_value = builder._calculate_target_value()
-                group.add_builder(builder)
-                if not builder.lifecycle.is_complete():
-                    self._ensure_frame_loop_running()
+        # ========================================================================
+        # OVERRIDE: flush to hardware on instant operations
+        # ========================================================================
 
-            group.enqueue_builder(execute_callback)
-            return True
-        else:
-            group.is_queue_active = True
-            return False
+        def _finalize_builder_completion(self, builder, group):
+            """Handle builder completion, cleanup, and flush to hardware"""
+            super()._finalize_builder_completion(builder, group)
 
-    def _targets_match(self, target1: Any, target2: Any) -> bool:
-        if isinstance(target1, (int, float)) and isinstance(target2, (int, float)):
-            return abs(target1 - target2) < EPSILON
-        elif is_vec2(target1) and is_vec2(target2):
-            return abs(target1.x - target2.x) < EPSILON and abs(target1.y - target2.y) < EPSILON
-        else:
-            return target1 == target2
+            # Flush to hardware for instant operations (no frame loop runs)
+            lt, rt, ltrig, rtrig = self._compute_current_state()
+            self._apply_to_hardware(
+                clamp_stick_vec2(lt), clamp_stick_vec2(rt),
+                clamp_trigger_value(ltrig), clamp_trigger_value(rtrig),
+            )
 
-    # ========================================================================
-    # COMPUTE CURRENT STATE
-    # ========================================================================
+        # ========================================================================
+        # ABSTRACT IMPLEMENTATIONS
+        # ========================================================================
 
-    def _compute_current_state(self) -> tuple[Vec2, Vec2, float, float]:
-        """Compute current state by applying all active layers to base.
+        def _create_active_builder(self, config, is_base):
+            """Factory for gamepad ActiveBuilder instances"""
+            from .builder import GamepadActiveBuilder
+            return GamepadActiveBuilder(config, self, is_base)
 
-        Returns:
-            (left_stick, right_stick, left_trigger, right_trigger)
-        """
-        lt = self._base_left_stick.copy()
-        rt = self._base_right_stick.copy()
-        ltrig = self._base_left_trigger
-        rtrig = self._base_right_trigger
+        def _get_or_create_group(self, builder):
+            """Get existing group or create new one for this builder"""
+            layer = builder.config.layer_name
 
-        # Separate groups by layer type
-        base_groups = []
-        user_groups = []
+            if layer in self._layer_groups:
+                return self._layer_groups[layer]
 
-        for layer_name, group in self._layer_groups.items():
+            # Determine property kind
+            prop = builder.config.property
+            subprop = getattr(builder.config, 'subproperty', None)
+            property_kind = self._get_property_kind_for(prop, subprop)
+
+            group = GamepadLayerGroup(
+                layer_name=layer,
+                property=prop,
+                property_kind=property_kind,
+                mode=builder.config.mode,
+                layer_type=builder.config.layer_type,
+                order=builder.config.order,
+                subproperty=subprop,
+            )
+
+            # Initialize base layer accumulated_value from actual base state
             if group.is_base:
-                base_groups.append(group)
-            else:
-                user_groups.append(group)
+                if prop == "left_stick":
+                    if subprop is None:
+                        group.accumulated_value = self._base_left_stick.copy()
+                    elif subprop == "magnitude":
+                        group.accumulated_value = self._base_left_stick.magnitude()
+                    elif subprop == "direction":
+                        group.accumulated_value = self._base_left_stick.normalized() if self._base_left_stick.magnitude() > EPSILON else Vec2(1, 0)
+                    elif subprop == "x":
+                        group.accumulated_value = self._base_left_stick.x
+                    elif subprop == "y":
+                        group.accumulated_value = self._base_left_stick.y
+                elif prop == "right_stick":
+                    if subprop is None:
+                        group.accumulated_value = self._base_right_stick.copy()
+                    elif subprop == "magnitude":
+                        group.accumulated_value = self._base_right_stick.magnitude()
+                    elif subprop == "direction":
+                        group.accumulated_value = self._base_right_stick.normalized() if self._base_right_stick.magnitude() > EPSILON else Vec2(1, 0)
+                    elif subprop == "x":
+                        group.accumulated_value = self._base_right_stick.x
+                    elif subprop == "y":
+                        group.accumulated_value = self._base_right_stick.y
+                elif prop == "left_trigger":
+                    group.accumulated_value = self._base_left_trigger
+                elif prop == "right_trigger":
+                    group.accumulated_value = self._base_right_trigger
 
-        # Sort user layers by order
-        user_groups = sorted(user_groups, key=lambda g: g.order if g.order is not None else 999999)
+            # Initialize override mode with current computed value
+            elif builder.config.mode == "override":
+                lt, rt, ltrig, rtrig = self._compute_current_state()
 
-        # Process base groups first, then user groups
-        for group in base_groups + user_groups:
-            lt, rt, ltrig, rtrig = self._apply_group(group, lt, rt, ltrig, rtrig)
+                if prop == "left_stick":
+                    if subprop is None:
+                        group.accumulated_value = lt.copy()
+                    elif subprop == "magnitude":
+                        group.accumulated_value = lt.magnitude()
+                    elif subprop == "direction":
+                        group.accumulated_value = lt.normalized() if lt.magnitude() > EPSILON else Vec2(1, 0)
+                    elif subprop == "x":
+                        group.accumulated_value = lt.x
+                    elif subprop == "y":
+                        group.accumulated_value = lt.y
+                elif prop == "right_stick":
+                    if subprop is None:
+                        group.accumulated_value = rt.copy()
+                    elif subprop == "magnitude":
+                        group.accumulated_value = rt.magnitude()
+                    elif subprop == "direction":
+                        group.accumulated_value = rt.normalized() if rt.magnitude() > EPSILON else Vec2(1, 0)
+                    elif subprop == "x":
+                        group.accumulated_value = rt.x
+                    elif subprop == "y":
+                        group.accumulated_value = rt.y
+                elif prop == "left_trigger":
+                    group.accumulated_value = ltrig
+                elif prop == "right_trigger":
+                    group.accumulated_value = rtrig
 
-        return (lt, rt, ltrig, rtrig)
+            # Track order
+            if builder.config.order is not None:
+                self._layer_orders[layer] = builder.config.order
+            elif not builder.config.is_base_layer():
+                if layer not in self._layer_orders:
+                    self._layer_orders[layer] = self._next_auto_order
+                    self._next_auto_order += 1
+                    group.order = self._layer_orders[layer]
 
-    def _apply_group(
-        self,
-        group: 'LayerGroup',
-        lt: Vec2,
-        rt: Vec2,
-        ltrig: float,
-        rtrig: float
-    ) -> tuple[Vec2, Vec2, float, float]:
-        """Apply a layer group's value to the accumulated state"""
-        prop = group.property
-        subprop = group.subproperty
-        mode = group.mode
-        current_value = group.get_current_value()
+            self._layer_groups[layer] = group
+            return group
 
-        if prop == "left_stick":
-            lt = self._apply_stick_group(lt, current_value, mode, subprop)
-        elif prop == "right_stick":
-            rt = self._apply_stick_group(rt, current_value, mode, subprop)
-        elif prop == "left_trigger":
-            ltrig = mode_operations.apply_trigger_mode(mode, current_value, ltrig)
-        elif prop == "right_trigger":
-            rtrig = mode_operations.apply_trigger_mode(mode, current_value, rtrig)
+        def _compute_current_state(self):
+            """Compute current state by applying all active layers to base.
 
-        return lt, rt, ltrig, rtrig
+            Returns:
+                (left_stick, right_stick, left_trigger, right_trigger)
+            """
+            lt = self._base_left_stick.copy()
+            rt = self._base_right_stick.copy()
+            ltrig = self._base_left_trigger
+            rtrig = self._base_right_trigger
 
-    def _apply_stick_group(self, stick: Vec2, value: Any, mode: str, subprop: Optional[str]) -> Vec2:
-        """Apply a stick group's value, handling subproperties"""
-        if subprop is None:
-            # Full stick Vec2
-            return mode_operations.apply_stick_mode(mode, value, stick)
-        elif subprop == "magnitude":
-            # Apply scalar to magnitude, preserve direction
-            current_mag = stick.magnitude()
-            new_mag = mode_operations.apply_scalar_mode(mode, value, current_mag)
-            new_mag = max(0.0, min(1.0, new_mag))
-            direction = stick.normalized() if current_mag > EPSILON else Vec2(1, 0)
-            return direction * new_mag
-        elif subprop == "direction":
-            # Apply direction, preserve magnitude
-            current_mag = stick.magnitude()
-            new_dir = mode_operations.apply_direction_mode(mode, value, stick.normalized() if current_mag > EPSILON else Vec2(1, 0))
-            return new_dir.normalized() * current_mag
-        elif subprop == "x":
-            # Apply scalar to x, preserve y
-            new_x = mode_operations.apply_scalar_mode(mode, value, stick.x)
-            return Vec2(clamp_stick_value(new_x), stick.y)
-        elif subprop == "y":
-            # Apply scalar to y, preserve x
-            new_y = mode_operations.apply_scalar_mode(mode, value, stick.y)
-            return Vec2(stick.x, clamp_stick_value(new_y))
+            # Separate groups by layer type
+            base_groups = []
+            user_groups = []
 
-        return stick
+            for layer_name, group in self._layer_groups.items():
+                if group.is_base:
+                    base_groups.append(group)
+                else:
+                    user_groups.append(group)
 
-    # ========================================================================
-    # BAKE
-    # ========================================================================
+            # Sort user layers by order
+            user_groups = sorted(user_groups, key=lambda g: g.order if g.order is not None else 999999)
 
-    def _bake_group_to_base(self, group: 'LayerGroup'):
-        """Bake base layer group's value into base state"""
-        if not group.is_base:
-            return
+            # Process base groups first, then user groups
+            for group in base_groups + user_groups:
+                lt, rt, ltrig, rtrig = self._apply_group(group, lt, rt, ltrig, rtrig)
 
-        current_value = group.get_current_value()
-        prop = group.property
-        subprop = group.subproperty
+            return (lt, rt, ltrig, rtrig)
 
-        if prop == "left_stick":
+        def _apply_group(self, group, lt, rt, ltrig, rtrig):
+            """Apply a layer group's value to the accumulated state"""
+            prop = group.property
+            subprop = getattr(group, 'subproperty', None)
+            mode = group.mode
+            current_value = group.get_current_value()
+
+            if prop == "left_stick":
+                lt = self._apply_stick_group(lt, current_value, mode, subprop)
+            elif prop == "right_stick":
+                rt = self._apply_stick_group(rt, current_value, mode, subprop)
+            elif prop == "left_trigger":
+                ltrig = mode_operations.apply_trigger_mode(mode, current_value, ltrig)
+            elif prop == "right_trigger":
+                rtrig = mode_operations.apply_trigger_mode(mode, current_value, rtrig)
+
+            return lt, rt, ltrig, rtrig
+
+        def _apply_stick_group(self, stick, value: Any, mode: str, subprop: Optional[str]):
+            """Apply a stick group's value, handling subproperties"""
             if subprop is None:
-                if is_vec2(current_value):
-                    self._base_left_stick = clamp_stick_vec2(current_value)
-                elif isinstance(current_value, tuple):
-                    self._base_left_stick = clamp_stick_vec2(Vec2.from_tuple(current_value))
+                # Full stick Vec2
+                return mode_operations.apply_stick_mode(mode, value, stick)
             elif subprop == "magnitude":
-                direction = self._base_left_stick.normalized() if self._base_left_stick.magnitude() > EPSILON else Vec2(1, 0)
-                self._base_left_stick = direction * max(0.0, min(1.0, float(current_value)))
+                # Apply scalar to magnitude, preserve direction
+                current_mag = stick.magnitude()
+                new_mag = mode_operations.apply_scalar_mode(mode, value, current_mag)
+                new_mag = max(0.0, min(1.0, new_mag))
+                direction = stick.normalized() if current_mag > EPSILON else Vec2(1, 0)
+                return direction * new_mag
             elif subprop == "direction":
-                mag = self._base_left_stick.magnitude()
-                if is_vec2(current_value):
-                    self._base_left_stick = current_value.normalized() * mag
+                # Apply direction, preserve magnitude
+                current_mag = stick.magnitude()
+                new_dir = mode_operations.apply_direction_mode(mode, value, stick.normalized() if current_mag > EPSILON else Vec2(1, 0))
+                return new_dir.normalized() * current_mag
             elif subprop == "x":
-                self._base_left_stick = Vec2(clamp_stick_value(float(current_value)), self._base_left_stick.y)
+                # Apply scalar to x, preserve y
+                new_x = mode_operations.apply_scalar_mode(mode, value, stick.x)
+                return Vec2(clamp_stick_value(new_x), stick.y)
             elif subprop == "y":
-                self._base_left_stick = Vec2(self._base_left_stick.x, clamp_stick_value(float(current_value)))
+                # Apply scalar to y, preserve x
+                new_y = mode_operations.apply_scalar_mode(mode, value, stick.y)
+                return Vec2(stick.x, clamp_stick_value(new_y))
 
-        elif prop == "right_stick":
-            if subprop is None:
-                if is_vec2(current_value):
-                    self._base_right_stick = clamp_stick_vec2(current_value)
-                elif isinstance(current_value, tuple):
-                    self._base_right_stick = clamp_stick_vec2(Vec2.from_tuple(current_value))
-            elif subprop == "magnitude":
-                direction = self._base_right_stick.normalized() if self._base_right_stick.magnitude() > EPSILON else Vec2(1, 0)
-                self._base_right_stick = direction * max(0.0, min(1.0, float(current_value)))
-            elif subprop == "direction":
-                mag = self._base_right_stick.magnitude()
-                if is_vec2(current_value):
-                    self._base_right_stick = current_value.normalized() * mag
-            elif subprop == "x":
-                self._base_right_stick = Vec2(clamp_stick_value(float(current_value)), self._base_right_stick.y)
-            elif subprop == "y":
-                self._base_right_stick = Vec2(self._base_right_stick.x, clamp_stick_value(float(current_value)))
+            return stick
 
-        elif prop == "left_trigger":
-            self._base_left_trigger = clamp_trigger_value(float(current_value))
+        def _tick_frame(self):
+            """Main frame loop tick"""
+            import time as _time
+            current_time = _time.perf_counter()
 
-        elif prop == "right_trigger":
-            self._base_right_trigger = clamp_trigger_value(float(current_value))
+            # Check debounce
+            self._check_debounce_pending(current_time)
 
-    def bake_all(self):
-        """Bake all layers: compute current state, set as base, remove all layers"""
-        lt, rt, ltrig, rtrig = self._compute_current_state()
-        self._base_left_stick = clamp_stick_vec2(lt)
-        self._base_right_stick = clamp_stick_vec2(rt)
-        self._base_left_trigger = clamp_trigger_value(ltrig)
-        self._base_right_trigger = clamp_trigger_value(rtrig)
+            # Advance all builders (handles phase transitions, completions, baking, cleanup)
+            self._advance_all_builders(current_time)
 
-        # Clear all layers and builders
-        self._layer_groups.clear()
-        self._layer_orders.clear()
+            # Compute current state
+            lt, rt, ltrig, rtrig = self._compute_current_state()
 
-    def _bake_property(self, property_name: str, layer: Optional[str] = None):
-        """Bake current computed value of a property into base state"""
-        lt, rt, ltrig, rtrig = self._compute_current_state()
+            # Clamp outputs
+            lt = clamp_stick_vec2(lt)
+            rt = clamp_stick_vec2(rt)
+            ltrig = clamp_trigger_value(ltrig)
+            rtrig = clamp_trigger_value(rtrig)
 
-        if property_name == "left_stick":
+            # Apply to hardware (single batch update)
+            self._apply_to_hardware(lt, rt, ltrig, rtrig)
+
+            # Stop if nothing active
+            self._stop_frame_loop_if_done()
+
+        def _bake_group_to_base(self, group):
+            """Bake base layer group's value into base state"""
+            if not group.is_base:
+                return
+
+            current_value = group.get_current_value()
+            prop = group.property
+            subprop = getattr(group, 'subproperty', None)
+
+            if prop == "left_stick":
+                if subprop is None:
+                    if is_vec2(current_value):
+                        self._base_left_stick = clamp_stick_vec2(current_value)
+                    elif isinstance(current_value, tuple):
+                        self._base_left_stick = clamp_stick_vec2(Vec2.from_tuple(current_value))
+                elif subprop == "magnitude":
+                    direction = self._base_left_stick.normalized() if self._base_left_stick.magnitude() > EPSILON else Vec2(1, 0)
+                    self._base_left_stick = direction * max(0.0, min(1.0, float(current_value)))
+                elif subprop == "direction":
+                    mag = self._base_left_stick.magnitude()
+                    if is_vec2(current_value):
+                        self._base_left_stick = current_value.normalized() * mag
+                elif subprop == "x":
+                    self._base_left_stick = Vec2(clamp_stick_value(float(current_value)), self._base_left_stick.y)
+                elif subprop == "y":
+                    self._base_left_stick = Vec2(self._base_left_stick.x, clamp_stick_value(float(current_value)))
+
+            elif prop == "right_stick":
+                if subprop is None:
+                    if is_vec2(current_value):
+                        self._base_right_stick = clamp_stick_vec2(current_value)
+                    elif isinstance(current_value, tuple):
+                        self._base_right_stick = clamp_stick_vec2(Vec2.from_tuple(current_value))
+                elif subprop == "magnitude":
+                    direction = self._base_right_stick.normalized() if self._base_right_stick.magnitude() > EPSILON else Vec2(1, 0)
+                    self._base_right_stick = direction * max(0.0, min(1.0, float(current_value)))
+                elif subprop == "direction":
+                    mag = self._base_right_stick.magnitude()
+                    if is_vec2(current_value):
+                        self._base_right_stick = current_value.normalized() * mag
+                elif subprop == "x":
+                    self._base_right_stick = Vec2(clamp_stick_value(float(current_value)), self._base_right_stick.y)
+                elif subprop == "y":
+                    self._base_right_stick = Vec2(self._base_right_stick.x, clamp_stick_value(float(current_value)))
+
+            elif prop == "left_trigger":
+                self._base_left_trigger = clamp_trigger_value(float(current_value))
+
+            elif prop == "right_trigger":
+                self._base_right_trigger = clamp_trigger_value(float(current_value))
+
+        def bake_all(self):
+            """Flatten all layers into base state, then clear all layers"""
+            lt, rt, ltrig, rtrig = self._compute_current_state()
             self._base_left_stick = clamp_stick_vec2(lt)
-        elif property_name == "right_stick":
             self._base_right_stick = clamp_stick_vec2(rt)
-        elif property_name == "left_trigger":
             self._base_left_trigger = clamp_trigger_value(ltrig)
-        elif property_name == "right_trigger":
             self._base_right_trigger = clamp_trigger_value(rtrig)
 
-        # Remove the specified layer or all layers for this property
-        if layer:
-            if layer in self._layer_groups:
-                del self._layer_groups[layer]
-            if layer in self._layer_orders:
-                del self._layer_orders[layer]
-        else:
-            layers_to_remove = [
-                l for l, g in self._layer_groups.items()
-                if g.property == property_name
-            ]
-            for l in layers_to_remove:
-                if l in self._layer_groups:
-                    del self._layer_groups[l]
-                if l in self._layer_orders:
-                    del self._layer_orders[l]
+            self._layer_groups.clear()
+            self._layer_orders.clear()
 
-    # ========================================================================
-    # FRAME LOOP
-    # ========================================================================
+        def _bake_property(self, property_name: str, layer: Optional[str] = None):
+            """Bake current computed value of a property into base state"""
+            lt, rt, ltrig, rtrig = self._compute_current_state()
 
-    def _ensure_frame_loop_running(self):
-        """Start frame loop if not already running"""
-        if self._frame_loop_job is None:
-            self._frame_loop_job = _cron.interval("16ms", self._tick_frame)
-            self._last_frame_time = None
+            if property_name == "left_stick":
+                self._base_left_stick = clamp_stick_vec2(lt)
+            elif property_name == "right_stick":
+                self._base_right_stick = clamp_stick_vec2(rt)
+            elif property_name == "left_trigger":
+                self._base_left_trigger = clamp_trigger_value(ltrig)
+            elif property_name == "right_trigger":
+                self._base_right_trigger = clamp_trigger_value(rtrig)
 
-    def _stop_frame_loop(self):
-        """Stop the frame loop"""
-        if self._frame_loop_job is not None:
-            _cron.cancel(self._frame_loop_job)
-            self._frame_loop_job = None
-            self._last_frame_time = None
-
-            for callback in self._stop_callbacks:
-                try:
-                    callback()
-                except Exception:
-                    pass
-            self._stop_callbacks.clear()
-
-    def _tick_frame(self):
-        """Main frame loop tick"""
-        current_time, dt = self._calculate_delta_time()
-        if dt is None:
-            return
-
-        # Check debounce
-        self._check_debounce_pending(current_time)
-
-        # Advance all builders
-        phase_transitions = self._advance_all_builders(current_time)
-
-        # Compute current state
-        lt, rt, ltrig, rtrig = self._compute_current_state()
-
-        # Clamp outputs
-        lt = clamp_stick_vec2(lt)
-        rt = clamp_stick_vec2(rt)
-        ltrig = clamp_trigger_value(ltrig)
-        rtrig = clamp_trigger_value(rtrig)
-
-        # Apply to hardware (single batch update)
-        self._apply_to_hardware(lt, rt, ltrig, rtrig)
-
-        # Remove completed builders
-        self._remove_completed_builders(current_time)
-
-        # Execute callbacks
-        self._execute_phase_callbacks(phase_transitions)
-
-        # Stop if nothing active
-        self._stop_frame_loop_if_done()
-
-    def _calculate_delta_time(self) -> tuple[float, Optional[float]]:
-        now = time.perf_counter()
-        if self._last_frame_time is None:
-            self._last_frame_time = now
-            return (now, None)
-        dt = now - self._last_frame_time
-        self._last_frame_time = now
-        return (now, dt)
-
-    def _advance_all_builders(self, current_time: float) -> list[tuple['ActiveBuilder', str]]:
-        """Advance all groups and track phase transitions"""
-        phase_transitions = []
-
-        for layer, group in list(self._layer_groups.items()):
-            group_transitions, builders_to_remove = group.advance(current_time)
-            phase_transitions.extend(group_transitions)
-
-            if not hasattr(group, '_pending_bake_results'):
-                group._pending_bake_results = []
-            group._pending_bake_results.extend(builders_to_remove)
-
-        return phase_transitions
-
-    def _remove_completed_builders(self, current_time: float) -> set[str]:
-        """Remove completed builders from groups"""
-        completed_layers = set()
-
-        for layer, group in list(self._layer_groups.items()):
-            builders_to_remove = []
-
-            for builder in group.builders:
-                if builder._marked_for_removal:
-                    builders_to_remove.append(builder)
-                    continue
-
-                completed_phase, _ = builder.advance(current_time)
-                if completed_phase is not None:
-                    builders_to_remove.append(builder)
-                elif builder.lifecycle.should_be_garbage_collected():
-                    builders_to_remove.append(builder)
-
-            # Process pending bake results
-            if hasattr(group, '_pending_bake_results'):
-                for builder, bake_result in group._pending_bake_results:
-                    if builder in group.builders:
-                        if bake_result == "bake_to_base":
-                            self._bake_group_to_base(group)
-                group._pending_bake_results = []
-
-            for builder in builders_to_remove:
-                group.remove_builder(builder)
-
-            if not group.should_persist():
+            # Remove the specified layer or all layers for this property
+            if layer:
                 if layer in self._layer_groups:
                     del self._layer_groups[layer]
                 if layer in self._layer_orders:
                     del self._layer_orders[layer]
-                completed_layers.add(layer)
+            else:
+                layers_to_remove = [
+                    l for l, g in self._layer_groups.items()
+                    if g.property == property_name
+                ]
+                for l in layers_to_remove:
+                    if l in self._layer_groups:
+                        del self._layer_groups[l]
+                    if l in self._layer_orders:
+                        del self._layer_orders[l]
 
-        return completed_layers
+        # ========================================================================
+        # HARDWARE
+        # ========================================================================
 
-    def _execute_phase_callbacks(self, phase_transitions: list[tuple['ActiveBuilder', str]]):
-        for builder, completed_phase in phase_transitions:
-            builder.lifecycle.execute_callbacks(completed_phase)
+        def _apply_to_hardware(self, lt, rt, ltrig: float, rtrig: float):
+            """Apply state to vgamepad hardware using single batch update"""
+            from . import gamepad_api
 
-    def _check_debounce_pending(self, current_time: float):
-        ready_keys = []
-        for key, (target_time, config, is_base, cron_job) in list(self._debounce_pending.items()):
-            if current_time >= target_time:
-                ready_keys.append(key)
+            if not gamepad_api.is_available():
+                return
 
-        for key in ready_keys:
-            target_time, config, is_base, cron_job = self._debounce_pending[key]
-            del self._debounce_pending[key]
-            if cron_job is not None:
-                _cron.cancel(cron_job)
-            config.behavior = None
-            config.behavior_args = ()
-            from .builder import ActiveBuilder
-            actual_builder = ActiveBuilder(config, self, is_base)
-            self.add_builder(actual_builder)
+            gamepad_api.update_all(lt.x, lt.y, rt.x, rt.y, ltrig, rtrig)
 
-    def _stop_frame_loop_if_done(self):
-        if not self._should_frame_loop_be_active():
-            self._stop_frame_loop()
+        # ========================================================================
+        # HELPERS
+        # ========================================================================
 
-    def _should_frame_loop_be_active(self) -> bool:
-        """Check if frame loop should be running"""
-        # Any builder with incomplete lifecycle
-        for group in self._layer_groups.values():
-            for builder in group.builders:
-                if not builder.lifecycle.is_complete():
-                    return True
+        def _get_property_kind_for(self, prop, subprop):
+            """Map gamepad property/subproperty to PropertyKind"""
+            PropertyKind = core.PropertyKind
+            if prop in ("left_trigger", "right_trigger") or subprop in ("magnitude", "x", "y"):
+                return PropertyKind.SCALAR
+            elif subprop == "direction":
+                return PropertyKind.DIRECTION
+            elif prop in ("left_stick", "right_stick") and subprop is None:
+                return PropertyKind.VECTOR
+            return PropertyKind.SCALAR
 
-        # Any pending debounce
-        if self._debounce_pending:
-            return True
-
-        return False
-
-    # ========================================================================
-    # HARDWARE
-    # ========================================================================
-
-    def _apply_to_hardware(self, lt: Vec2, rt: Vec2, ltrig: float, rtrig: float):
-        """Apply state to vgamepad hardware using single batch update"""
-        from . import gamepad_api
-
-        if not gamepad_api.is_available():
-            return
-
-        gamepad_api.update_all(lt.x, lt.y, rt.x, rt.y, ltrig, rtrig)
+    GamepadState = _GamepadState

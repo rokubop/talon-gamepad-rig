@@ -1,6 +1,6 @@
 # Gamepad Rig
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.5.0-blue)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 
 Smooth interpolation and rate-based control for gamepad inputs. Adapted from mouse_rig architecture.
