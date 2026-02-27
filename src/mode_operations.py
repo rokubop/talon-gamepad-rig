@@ -29,8 +29,10 @@ def _build_classes(core):
 
 # Gamepad-specific wrappers
 def calculate_stick_target(operator, value, current, mode):
-    """Calculate target for stick property. Decomposes Vec2 into magnitude + direction, delegates to calculate_vector_target."""
+    """Calculate target for stick property. Scale mode uses position (per-axis), others use vector (magnitude+direction)."""
     from .core import Vec2, EPSILON
+    if mode == "scale":
+        return calculate_position_target(operator, value, current, mode)
     current_mag = current.magnitude() if hasattr(current, 'magnitude') else 0.0
     current_dir = current.normalized() if hasattr(current, 'normalized') and current_mag > EPSILON else Vec2(1, 0)
     return calculate_vector_target(operator, value, current_mag, current_dir, mode)
@@ -42,8 +44,17 @@ def calculate_trigger_target(operator, value, current, mode):
 
 
 def apply_stick_mode(mode, value, accumulated):
-    """Apply mode to stick value via vector decomposition, clamp result to unit circle."""
-    from .core import Vec2, clamp_stick_vec2, EPSILON
+    """Apply mode to stick value. Scale uses per-axis multiply, others use vector decomposition."""
+    from .core import Vec2, is_vec2, clamp_stick_vec2, EPSILON
+    if mode == "scale":
+        if is_vec2(value):
+            return clamp_stick_vec2(Vec2(accumulated.x * value.x, accumulated.y * value.y))
+        elif isinstance(value, tuple):
+            cv = Vec2.from_tuple(value)
+            return clamp_stick_vec2(Vec2(accumulated.x * cv.x, accumulated.y * cv.y))
+        elif isinstance(value, (int, float)):
+            return clamp_stick_vec2(Vec2(accumulated.x * value, accumulated.y * value))
+        return clamp_stick_vec2(accumulated)
     acc_mag = accumulated.magnitude() if hasattr(accumulated, 'magnitude') else 0.0
     acc_dir = accumulated.normalized() if hasattr(accumulated, 'normalized') and acc_mag > EPSILON else Vec2(1, 0)
     new_speed, new_dir = apply_vector_mode(mode, value, acc_mag, acc_dir)

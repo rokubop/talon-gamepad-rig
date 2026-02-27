@@ -279,7 +279,7 @@ def _build_classes(core):
             # Determine property kind
             prop = builder.config.property
             subprop = getattr(builder.config, 'subproperty', None)
-            property_kind = self._get_property_kind_for(prop, subprop)
+            property_kind = self._get_property_kind_for(prop, subprop, builder.config.mode)
 
             group = GamepadLayerGroup(
                 layer_name=layer,
@@ -574,7 +574,7 @@ def _build_classes(core):
         # HELPERS
         # ========================================================================
 
-        def _get_property_kind_for(self, prop, subprop):
+        def _get_property_kind_for(self, prop, subprop, mode=None):
             """Map gamepad property/subproperty to PropertyKind"""
             PropertyKind = core.PropertyKind
             if prop in ("left_trigger", "right_trigger") or subprop in ("magnitude", "x", "y"):
@@ -582,6 +582,8 @@ def _build_classes(core):
             elif subprop == "direction":
                 return PropertyKind.DIRECTION
             elif prop in ("left_stick", "right_stick") and subprop is None:
+                if mode == "scale":
+                    return PropertyKind.POSITION
                 return PropertyKind.VECTOR
             return PropertyKind.SCALAR
 

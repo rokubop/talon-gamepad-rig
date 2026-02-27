@@ -104,6 +104,8 @@ def _build_classes(core):
             elif subprop == "direction":
                 return mode_operations.calculate_direction_target(operator, value, current, mode)
             elif prop in ("left_stick", "right_stick") and subprop is None:
+                if mode == "scale":
+                    return mode_operations.calculate_position_target(operator, value, current, mode)
                 current_mag = current.magnitude() if is_vec2(current) else 0.0
                 current_dir = current.normalized() if is_vec2(current) and current_mag > EPSILON else Vec2(1, 0)
                 return mode_operations.calculate_vector_target(operator, value, current_mag, current_dir, mode)
@@ -120,6 +122,8 @@ def _build_classes(core):
             elif subprop == "direction":
                 return PropertyKind.DIRECTION
             elif prop in ("left_stick", "right_stick") and subprop is None:
+                if self.config.mode == "scale":
+                    return PropertyKind.POSITION
                 return PropertyKind.VECTOR
             return PropertyKind.SCALAR
 

@@ -353,9 +353,4 @@ def reload_rig():
                     pass
 
 
-def get_version() -> str:
-    """Get gamepad rig version"""
-    return "0.1.0-alpha"
-
-
-__all__ = ['rig', 'Rig', 'StopHandle', 'GamepadBuilder', 'GamepadState', 'reset_rig', 'reload_rig', 'get_version']
+__all__ = ['rig', 'Rig', 'StopHandle', 'GamepadBuilder', 'GamepadState', 'reset_rig', 'reload_rig']
