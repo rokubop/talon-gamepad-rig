@@ -39,8 +39,7 @@ VALID_OPERATORS = {
 }
 
 VALID_RIG_METHODS = [
-    'stop', 'layer', 'offset', 'override', 'scale',
-    'left_stick', 'right_stick', 'left_trigger', 'right_trigger'
+    'stop', 'layer', 'reverse',
 ]
 VALID_RIG_PROPERTIES = VALID_PROPERTIES
 
@@ -48,7 +47,6 @@ VALID_BUILDER_METHODS = [
     'over', 'hold', 'revert', 'then', 'bake',
     'stack', 'replace', 'queue', 'throttle', 'debounce',
     'offset', 'override', 'scale',
-    'to', 'by', 'add', 'mul'
 ]
 
 VALID_LAYER_STATE_ATTRS = [

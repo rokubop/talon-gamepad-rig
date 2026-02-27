@@ -56,6 +56,23 @@ def _build_classes(core):
 
             super().__init__(config, rig_state, is_base_layer)
 
+            # Auto-detect same-axis reversal for sticks and direction subproperty
+            subprop = getattr(config, 'subproperty', None)
+            prop = config.property
+            if (config.operator == "to" and
+                config.over_ms is not None and
+                config.over_ms > 0):
+                # Stick vectors: (1,0) → (-1,0)
+                if prop in ("left_stick", "right_stick") and subprop is None:
+                    if self._is_same_axis_reversal(self.base_value, self.target_value):
+                        config.over_interpolation = 'linear'
+                        config.revert_interpolation = 'linear'
+                # Direction subproperty: direction.to() reversal
+                elif subprop == "direction":
+                    if self._is_same_axis_reversal(self.base_value, self.target_value):
+                        config.over_interpolation = 'linear'
+                        config.revert_interpolation = 'linear'
+
         def _get_base_value(self) -> Any:
             """Read raw base value from device state for this property."""
             prop = self.config.property
@@ -105,12 +122,53 @@ def _build_classes(core):
                 return mode_operations.calculate_direction_target(operator, value, current, mode)
             elif prop in ("left_stick", "right_stick") and subprop is None:
                 if mode == "scale":
-                    return mode_operations.calculate_position_target(operator, value, current, mode)
+                    # Stick scale: per-component multiplication
+                    vec = Vec2.from_tuple(value) if not is_vec2(value) else value
+                    if operator == "to":
+                        return vec
+                    elif operator in ("by", "add"):
+                        return Vec2(1.0 + vec.x, 1.0 + vec.y)
+                    return vec
                 current_mag = current.magnitude() if is_vec2(current) else 0.0
                 current_dir = current.normalized() if is_vec2(current) and current_mag > EPSILON else Vec2(1, 0)
                 return mode_operations.calculate_vector_target(operator, value, current_mag, current_dir, mode)
 
             return current
+
+        def _get_own_value(self):
+            """Override for stick scale: per-component Vec2 animation instead of scalar."""
+            prop = self.config.property
+            subprop = getattr(self.config, 'subproperty', None)
+            mode = self.config.mode
+
+            if (prop in ("left_stick", "right_stick") and subprop is None and mode == "scale"):
+                import time as _time
+                current_time = _time.perf_counter()
+                phase, progress = self.lifecycle.advance(current_time)
+                PropertyAnimator = core.PropertyAnimator
+
+                neutral = Vec2(1, 1)
+                target = self.target_value if is_vec2(self.target_value) else Vec2(self.target_value, self.target_value)
+
+                if phase is None:
+                    if self.lifecycle.has_reverted():
+                        return neutral
+                    return target
+                elif phase == LifecyclePhase.OVER:
+                    return Vec2(
+                        neutral.x + (target.x - neutral.x) * progress,
+                        neutral.y + (target.y - neutral.y) * progress
+                    )
+                elif phase == LifecyclePhase.HOLD:
+                    return target
+                elif phase == LifecyclePhase.REVERT:
+                    return Vec2(
+                        target.x + (neutral.x - target.x) * progress,
+                        target.y + (neutral.y - target.y) * progress
+                    )
+                return target
+
+            return super()._get_own_value()
 
         def _get_property_kind(self):
             """Return PropertyKind for this builder's property."""
@@ -122,8 +180,6 @@ def _build_classes(core):
             elif subprop == "direction":
                 return PropertyKind.DIRECTION
             elif prop in ("left_stick", "right_stick") and subprop is None:
-                if self.config.mode == "scale":
-                    return PropertyKind.POSITION
                 return PropertyKind.VECTOR
             return PropertyKind.SCALAR
 
@@ -650,6 +706,13 @@ class StickPropertyBuilder:
         """Add to stick position (alias for by)"""
         return self.by(dx, dy)
 
+    def mul(self, factor: float) -> GamepadBuilder:
+        """Multiply stick position by scalar factor"""
+        self.gamepad_builder.config.operator = "mul"
+        self.gamepad_builder.config.value = factor
+        self.gamepad_builder.config.validate_property_operator(self.gamepad_builder._mark_invalid)
+        return self.gamepad_builder
+
     def bake(self) -> GamepadBuilder:
         """Bake current computed value into base state"""
         self.gamepad_builder.config.operator = "bake"
@@ -759,6 +822,13 @@ class TriggerPropertyBuilder:
         """Add to trigger value (alias for by)"""
         return self.by(delta)
 
+    def mul(self, factor: float) -> GamepadBuilder:
+        """Multiply trigger value by factor"""
+        self.gamepad_builder.config.operator = "mul"
+        self.gamepad_builder.config.value = factor
+        self.gamepad_builder.config.validate_property_operator(self.gamepad_builder._mark_invalid)
+        return self.gamepad_builder
+
     def bake(self) -> GamepadBuilder:
         """Bake current computed value into base state"""
         self.gamepad_builder.config.operator = "bake"
@@ -838,6 +908,13 @@ class ScalarPropertyBuilder:
         """Add to value (alias for by)"""
         return self.by(delta)
 
+    def mul(self, factor: float) -> GamepadBuilder:
+        """Multiply value by factor"""
+        self.gamepad_builder.config.operator = "mul"
+        self.gamepad_builder.config.value = factor
+        self.gamepad_builder.config.validate_property_operator(self.gamepad_builder._mark_invalid)
+        return self.gamepad_builder
+
     def bake(self) -> GamepadBuilder:
         """Bake current computed value into base state"""
         self.gamepad_builder.config.operator = "bake"
@@ -910,6 +987,13 @@ class DirectionPropertyBuilder:
     def add(self, degrees: float) -> GamepadBuilder:
         """Rotate direction by degrees (alias for by)"""
         return self.by(degrees)
+
+    def mul(self, factor: float) -> GamepadBuilder:
+        """Scale direction by factor"""
+        self.gamepad_builder.config.operator = "mul"
+        self.gamepad_builder.config.value = factor
+        self.gamepad_builder.config.validate_property_operator(self.gamepad_builder._mark_invalid)
+        return self.gamepad_builder
 
     def bake(self) -> GamepadBuilder:
         """Bake current computed value into base state"""

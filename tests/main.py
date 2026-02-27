@@ -5,7 +5,9 @@ Run via voice command or action:
 """
 
 import inspect
+import os
 import re
+from datetime import datetime
 from talon import actions, cron, scope
 from ..src import gamepad_api
 
@@ -23,6 +25,7 @@ from .test_transitions import TRANSITION_TESTS
 from .test_behaviors import BEHAVIOR_TESTS
 from .test_validation import VALIDATION_TESTS
 from .test_contracts import CONTRACTS_TESTS
+from .test_reverse import REVERSE_TESTS
 
 TEST_GROUPS = [
     ("Stick Basic", STICK_BASIC_TESTS),
@@ -39,6 +42,7 @@ TEST_GROUPS = [
     ("Behaviors", BEHAVIOR_TESTS),
     ("Validation", VALIDATION_TESTS),
     ("Contracts", CONTRACTS_TESTS),
+    ("Reverse", REVERSE_TESTS),
 ]
 
 _test_runner_state = {
@@ -51,6 +55,7 @@ _test_runner_state = {
     "all_tests_running": False,
     "group_names": [],
     "opened_tester": False,
+    "test_results_file": None,
 }
 
 
@@ -234,6 +239,15 @@ def run_all_tests_global():
     if _test_runner_state["running"]:
         return
 
+    # Create test results file
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    results_file = os.path.join(os.path.dirname(test_dir), "test_results.txt")
+    _test_runner_state["test_results_file"] = results_file
+
+    with open(results_file, "w") as f:
+        f.write(f"Test Run Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("=" * 70 + "\n\n")
+
     all_tests = []
     for group_name, tests in TEST_GROUPS:
         for test_name, test_func in tests:
@@ -266,8 +280,14 @@ def run_all_tests_global():
         def on_test_complete(success):
             if success:
                 _test_runner_state["passed_count"] += 1
+                result_msg = f"PASSED: {group_name} - {test_name}\n"
             else:
                 _test_runner_state["failed_count"] += 1
+                result_msg = f"FAILED: {group_name} - {test_name}\n"
+
+            if _test_runner_state["test_results_file"]:
+                with open(_test_runner_state["test_results_file"], "a") as f:
+                    f.write(result_msg)
 
             stop_on_fail = actions.user.ui_elements_get_state("stop_on_fail", True)
             if not success and stop_on_fail:
@@ -286,6 +306,15 @@ def run_all_tests_global():
         failed = _test_runner_state["failed_count"]
         total = passed + failed
         all_passed = failed == 0
+
+        if _test_runner_state["test_results_file"]:
+            with open(_test_runner_state["test_results_file"], "a") as f:
+                f.write("\n" + "=" * 70 + "\n")
+                f.write(f"Test Run Complete: {passed}/{total} passed\n")
+                if failed > 0:
+                    f.write(f"Failed: {failed}\n")
+                f.write("=" * 70 + "\n")
+            print(f"Test results written to: {_test_runner_state['test_results_file']}")
 
         actions.user.ui_elements_set_state("test_summary", {
             "passed": passed,
@@ -341,6 +370,7 @@ def stop_all_tests():
     _test_runner_state["current_test_index"] = 0
     _test_runner_state["tests"] = []
     _test_runner_state["all_tests_running"] = False
+    _test_runner_state["test_results_file"] = None
 
     for name in _test_runner_state["group_names"]:
         actions.user.ui_elements_set_state(f"run_all_{name}", False)

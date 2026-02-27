@@ -157,16 +157,17 @@ def test_stick_add_negative(on_success, on_failure):
 # ============================================================================
 
 def test_stick_x_to_over(on_success, on_failure):
-    """x.to(1).over(300) animates X axis only"""
+    """x.to(0.8).over(300) animates X axis only"""
     setup()
     r = rig()
     r.left_stick.to(0, 0.5).run()
-    r.left_stick.x.to(1).over(300)
+    r.left_stick.x.to(0.8).over(300)
 
     def check_end():
         try:
             pos = r.state.left_stick
-            assert abs(pos.x - 1.0) < 0.1, f"Expected x~1.0, got {pos.x}"
+            # (0.8, 0.5) magnitude ~0.94, within unit circle
+            assert abs(pos.x - 0.8) < 0.1, f"Expected x~0.8, got {pos.x}"
             assert abs(pos.y - 0.5) < 0.1, f"Expected y preserved ~0.5, got {pos.y}"
             on_success()
         except Exception as e:
@@ -178,17 +179,18 @@ def test_stick_x_to_over(on_success, on_failure):
 
 
 def test_stick_y_to_over(on_success, on_failure):
-    """y.to(-1).over(300) animates Y axis only"""
+    """y.to(-0.8).over(300) animates Y axis only"""
     setup()
     r = rig()
     r.left_stick.to(0.5, 0).run()
-    r.left_stick.y.to(-1).over(300)
+    r.left_stick.y.to(-0.8).over(300)
 
     def check_end():
         try:
             pos = r.state.left_stick
+            # (0.5, -0.8) magnitude ~0.94, within unit circle
             assert abs(pos.x - 0.5) < 0.1, f"Expected x preserved ~0.5, got {pos.x}"
-            assert abs(pos.y - (-1.0)) < 0.1, f"Expected y~-1.0, got {pos.y}"
+            assert abs(pos.y - (-0.8)) < 0.1, f"Expected y~-0.8, got {pos.y}"
             on_success()
         except Exception as e:
             on_failure(str(e))
@@ -262,10 +264,10 @@ def test_stick_lifecycle_callbacks(on_success, on_failure):
 # ============================================================================
 
 def test_stick_over_with_easing(on_success, on_failure):
-    """over(300, 'ease_in_quad') applies easing to transition"""
+    """over(300, 'ease_in2') applies easing to transition"""
     setup()
     r = rig()
-    r.left_stick.to(1, 0).over(300, "ease_in_quad")
+    r.left_stick.to(1, 0).over(300, "ease_in2")
 
     def check_end():
         try:
@@ -281,10 +283,10 @@ def test_stick_over_with_easing(on_success, on_failure):
 
 
 def test_stick_revert_with_easing(on_success, on_failure):
-    """revert(300, 'ease_out_quad') applies easing to revert"""
+    """revert(300, 'ease_out2') applies easing to revert"""
     setup()
     r = rig()
-    r.left_stick.to(1, 0).hold(200).revert(300, "ease_out_quad")
+    r.left_stick.to(1, 0).hold(200).revert(300, "ease_out2")
 
     def check_end():
         try:
@@ -304,17 +306,20 @@ def test_stick_revert_with_easing(on_success, on_failure):
 # CLAMPING
 # ============================================================================
 
-def test_stick_clamps_to_unit(on_success, on_failure):
-    """Values beyond [-1, 1] are clamped"""
+def test_stick_clamps_to_unit_circle(on_success, on_failure):
+    """Values beyond unit circle are normalized to magnitude 1"""
     setup()
     r = rig()
-    r.left_stick.to(2, 3).run()
+    r.left_stick.to(1, 1).run()
 
     def check():
         try:
             pos = r.state.left_stick
             mag = (pos.x ** 2 + pos.y ** 2) ** 0.5
-            assert mag <= 1.05, f"Expected magnitude ≤ 1, got {mag}"
+            assert abs(mag - 1.0) < 0.05, f"Expected magnitude ~1.0, got {mag}"
+            # Direction preserved: x ≈ y ≈ 0.707
+            assert abs(pos.x - 0.707) < 0.05, f"Expected x ~0.707, got {pos.x}"
+            assert abs(pos.y - 0.707) < 0.05, f"Expected y ~0.707, got {pos.y}"
             on_success()
         except Exception as e:
             on_failure(str(e))
@@ -384,7 +389,7 @@ STICK_ADVANCED_TESTS = [
     ("lifecycle callbacks order", test_stick_lifecycle_callbacks),
     ("over() with easing", test_stick_over_with_easing),
     ("revert() with easing", test_stick_revert_with_easing),
-    ("stick clamps to unit", test_stick_clamps_to_unit),
+    ("stick clamps to unit circle", test_stick_clamps_to_unit_circle),
     ("trigger clamps 0-1", test_trigger_clamps_0_to_1),
     ("state cleanup after lifecycle", test_state_cleanup_after_lifecycle),
 ]

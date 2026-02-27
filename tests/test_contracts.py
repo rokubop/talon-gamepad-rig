@@ -85,22 +85,22 @@ def test_property_operators_complete(on_success, on_failure):
 
 
 def test_no_extra_schemas(on_success, on_failure):
-    """No schemas for non-existent methods"""
+    """VALID_BUILDER_METHODS and VALID_RIG_METHODS only list methods that exist"""
     try:
-        from ..src.contracts import METHOD_SIGNATURES
+        from ..src.contracts import VALID_BUILDER_METHODS, VALID_RIG_METHODS
         from ..src import GamepadBuilder, Rig
 
-        if METHOD_SIGNATURES is None:
-            on_success()  # No schemas defined yet
-            return
-
-        for method_name in METHOD_SIGNATURES.keys():
-            exists_on_builder = hasattr(GamepadBuilder, method_name)
-            exists_on_rig = hasattr(Rig, method_name)
-
-            if not (exists_on_builder or exists_on_rig):
+        for method_name in VALID_BUILDER_METHODS:
+            if not hasattr(GamepadBuilder, method_name):
                 on_failure(
-                    f"Schema exists for '{method_name}' but method doesn't exist on GamepadBuilder or Rig"
+                    f"'{method_name}' is in VALID_BUILDER_METHODS but doesn't exist on GamepadBuilder"
+                )
+                return
+
+        for method_name in VALID_RIG_METHODS:
+            if not hasattr(Rig, method_name):
+                on_failure(
+                    f"'{method_name}' is in VALID_RIG_METHODS but doesn't exist on Rig"
                 )
                 return
 

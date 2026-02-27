@@ -36,5 +36,8 @@ def clamp_trigger_value(v: float) -> float:
 
 
 def clamp_stick_vec2(vec) -> 'Vec2':
-    """Clamp Vec2 to gamepad stick ranges [-1, 1] for both axes"""
-    return Vec2(clamp_stick_value(vec.x), clamp_stick_value(vec.y))
+    """Clamp Vec2 to unit circle (magnitude <= 1), matching real controller behavior"""
+    mag = (vec.x ** 2 + vec.y ** 2) ** 0.5
+    if mag > 1.0:
+        return Vec2(vec.x / mag, vec.y / mag)
+    return Vec2(float(vec.x), float(vec.y))

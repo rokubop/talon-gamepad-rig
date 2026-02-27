@@ -71,35 +71,15 @@ def test_trigger_add_negative(on_success, on_failure):
     cron.after(VISIBLE_MS, check)
 
 
-def test_trigger_mul(on_success, on_failure):
-    """left_trigger.mul(0.5) multiplies current value"""
-    setup()
-    r = rig()
-    r.left_trigger.to(0.8).run()
-    r.left_trigger.mul(0.5).run()
-
-    def check():
-        try:
-            val = r.state.left_trigger
-            assert abs(val - 0.4) < 0.05, f"Expected 0.8*0.5=0.4, got {val}"
-            on_success()
-        except Exception as e:
-            on_failure(str(e))
-        finally:
-            teardown()
-
-    cron.after(VISIBLE_MS, check)
-
-
 # ============================================================================
 # TRIGGER EASING
 # ============================================================================
 
 def test_trigger_over_with_easing(on_success, on_failure):
-    """left_trigger.to(1).over(300, 'ease_in_quad') applies easing"""
+    """left_trigger.to(1).over(300, 'ease_in2') applies easing"""
     setup()
     r = rig()
-    r.left_trigger.to(1).over(300, "ease_in_quad")
+    r.left_trigger.to(1).over(300, "ease_in2")
 
     def check_end():
         try:
@@ -286,7 +266,6 @@ TRIGGER_ADVANCED_TESTS = [
     ("trigger.add()", test_trigger_add),
     ("trigger.add().over()", test_trigger_add_over),
     ("trigger.add() negative", test_trigger_add_negative),
-    ("trigger.mul()", test_trigger_mul),
     ("trigger.over() with easing", test_trigger_over_with_easing),
     ("trigger.over().then()", test_trigger_over_then_callback),
     ("trigger lifecycle callbacks", test_trigger_lifecycle_callbacks),

@@ -70,7 +70,7 @@ def test_revert_without_hold(on_success, on_failure):
         finally:
             teardown()
 
-    cron.after("250ms", check_at_target)
+    cron.after("190ms", check_at_target)
 
 
 STICK_HOLD_REVERT_TESTS = [

@@ -582,8 +582,6 @@ def _build_classes(core):
             elif subprop == "direction":
                 return PropertyKind.DIRECTION
             elif prop in ("left_stick", "right_stick") and subprop is None:
-                if mode == "scale":
-                    return PropertyKind.POSITION
                 return PropertyKind.VECTOR
             return PropertyKind.SCALAR
 

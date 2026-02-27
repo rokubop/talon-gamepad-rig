@@ -168,6 +168,120 @@ class Rig:
     # SPECIAL OPERATIONS
     # ========================================================================
 
+    def reverse(self, ms: Optional[float] = None, easing: str = "linear"):
+        """Reverse direction of all stick movement (base + layers)
+
+        Only affects sticks (VECTOR property kind). Triggers are unaffected.
+
+        Args:
+            ms: Optional transition duration. If None, reverses instantly.
+                If provided, creates smooth transition by emitting decay copies.
+            easing: Easing function for gradual reversal
+
+        Examples:
+            rig.reverse()         # Instant 180° flip
+            rig.reverse(400)      # Smooth turn over 400ms
+        """
+        from .contracts import validate_timing
+        ms = validate_timing(ms, 'ms', method='reverse') if ms is not None else None
+
+        if ms is not None:
+            self._emit_reverse_copies(ms, easing)
+
+        self._reverse_all_directions()
+
+    def _emit_reverse_copies(self, ms: float, easing: str = "linear"):
+        """Emit decay copies of stick layers for smooth reverse transition.
+
+        Creates 2x copies of each stick layer that fade out over the duration,
+        bridging from current velocity to reversed velocity smoothly.
+        """
+        import time as _time
+
+        emitted_base = {"left_stick": False, "right_stick": False}
+
+        for layer_name in list(self._state._layer_groups.keys()):
+            group = self._state._layer_groups.get(layer_name)
+            if group is None:
+                continue
+
+            # Only emit for stick layers (VECTOR kind)
+            if group.property not in ("left_stick", "right_stick"):
+                continue
+
+            if group.is_base:
+                # Base stick layers with additive operators: emit contribution as offset
+                if group.builders and group.builders[0].config.operator in ("by", "add"):
+                    current_value = group.get_current_value()
+                    prop = group.property
+                    base_val = (self._state._base_left_stick if prop == "left_stick"
+                                else self._state._base_right_stick)
+                    contribution_x = current_value.x - base_val.x if current_value else 0
+                    contribution_y = current_value.y - base_val.y if current_value else 0
+
+                    for i in range(2):
+                        emit_name = f"emit.base.{prop}.{int(_time.perf_counter() * 1000000)}"
+                        b = GamepadBuilder(self._state, layer=emit_name)
+                        b.config.mode = "offset"
+                        b.config.property = prop
+                        b.config.operator = "to"
+                        b.config.value = (contribution_x, contribution_y)
+                        b.config.revert_ms = ms
+                        b.config.revert_easing = easing
+                        b._execute()
+                        if emit_name in self._state._layer_groups:
+                            self._state._layer_groups[emit_name].is_emit_layer = True
+
+                    emitted_base[prop] = True
+                continue
+
+            # Non-base stick layers: copy twice as emit layers that decay
+            try:
+                for i in range(2):
+                    copy_name = f"emit.copy.{layer_name}.{int(_time.perf_counter() * 1000000)}"
+                    copy_group = group.copy(copy_name)
+                    copy_group.is_emit_layer = True
+                    for builder in copy_group.builders:
+                        builder.group = copy_group
+                    self._state._layer_groups[copy_name] = copy_group
+                    self._state._layer_orders[copy_name] = (
+                        copy_group.order if copy_group.order is not None
+                        else self._state._next_auto_order
+                    )
+                    self._state.trigger_revert(copy_name, ms, easing)
+            except Exception:
+                pass
+
+        # Emit 2x base stick velocity for sticks that didn't have base layer emissions
+        for prop in ("left_stick", "right_stick"):
+            if emitted_base[prop]:
+                continue
+            base_val = (self._state._base_left_stick if prop == "left_stick"
+                        else self._state._base_right_stick)
+            vel_x = base_val.x * 2
+            vel_y = base_val.y * 2
+            if abs(vel_x) > 0.001 or abs(vel_y) > 0.001:
+                emit_name = f"emit.base.{prop}.{int(_time.perf_counter() * 1000000)}"
+                b = GamepadBuilder(self._state, layer=emit_name)
+                b.config.mode = "offset"
+                b.config.property = prop
+                b.config.operator = "to"
+                b.config.value = (vel_x, vel_y)
+                b.config.revert_ms = ms
+                b.config.revert_easing = easing
+                b._execute()
+                if emit_name in self._state._layer_groups:
+                    self._state._layer_groups[emit_name].is_emit_layer = True
+
+    def _reverse_all_directions(self):
+        """Reverse base stick vectors and all layer accumulated values/builders"""
+        # Core handles layer groups (VECTOR property_kind, skip emit layers)
+        self._state.reverse_all_directions()
+
+        # Gamepad-specific: flip base stick vectors
+        self._state._base_left_stick = self._state._base_left_stick * -1
+        self._state._base_right_stick = self._state._base_right_stick * -1
+
     def stop(self, ms: Optional[float] = None, easing: str = "linear") -> StopHandle:
         """Stop everything: bake all layers, clear builders, return to neutral
 
