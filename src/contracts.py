@@ -27,15 +27,15 @@ GamepadBuilderConfig = None
 VALID_PROPERTIES = ['left_stick', 'right_stick', 'left_trigger', 'right_trigger']
 
 VALID_OPERATORS = {
-    'left_stick': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
-    'right_stick': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
-    'left_trigger': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
-    'right_trigger': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
+    'left_stick': ['to', 'add', 'by', 'mul', 'bake'],
+    'right_stick': ['to', 'add', 'by', 'mul', 'bake'],
+    'left_trigger': ['to', 'add', 'by', 'mul', 'bake'],
+    'right_trigger': ['to', 'add', 'by', 'mul', 'bake'],
     # Subproperties
-    'magnitude': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
-    'direction': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
-    'x': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
-    'y': ['to', 'add', 'by', 'sub', 'mul', 'div', 'bake'],
+    'magnitude': ['to', 'add', 'by', 'mul', 'bake'],
+    'direction': ['to', 'add', 'by', 'mul', 'bake'],
+    'x': ['to', 'add', 'by', 'mul', 'bake'],
+    'y': ['to', 'add', 'by', 'mul', 'bake'],
 }
 
 VALID_RIG_METHODS = [
@@ -48,7 +48,7 @@ VALID_BUILDER_METHODS = [
     'over', 'hold', 'revert', 'then', 'bake',
     'stack', 'replace', 'queue', 'throttle', 'debounce',
     'offset', 'override', 'scale',
-    'to', 'by', 'add', 'sub', 'mul', 'div'
+    'to', 'by', 'add', 'mul'
 ]
 
 VALID_LAYER_STATE_ATTRS = [

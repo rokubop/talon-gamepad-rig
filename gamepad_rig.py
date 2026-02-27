@@ -5,7 +5,7 @@ Provides Talon actions for gamepad control using fluent API.
 
 from talon import Module, actions
 from typing import Any
-from .src import rig as get_rig, reload_rig, get_version
+from .src import rig as get_rig, reload_rig
 from .src import gamepad_api
 
 mod = Module()
@@ -69,10 +69,6 @@ class Actions:
     def gamepad_rig_reload() -> None:
         """Reload the gamepad rig (reset state)"""
         reload_rig()
-
-    def gamepad_rig_version() -> str:
-        """Get gamepad rig version"""
-        return get_version()
 
     def gamepad_rig_tests():
         """Toggle gamepad rig test runner UI"""

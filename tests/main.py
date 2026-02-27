@@ -12,23 +12,33 @@ from ..src import gamepad_api
 from .test_stick_basic import STICK_BASIC_TESTS
 from .test_stick_over import STICK_OVER_TESTS
 from .test_stick_hold_revert import STICK_HOLD_REVERT_TESTS
+from .test_stick_advanced import STICK_ADVANCED_TESTS
 from .test_trigger import TRIGGER_TESTS
+from .test_trigger_advanced import TRIGGER_ADVANCED_TESTS
 from .test_layers import LAYER_TESTS
 from .test_buttons import BUTTON_TESTS
 from .test_state import STATE_TESTS
 from .test_stop_reset import STOP_RESET_TESTS
 from .test_transitions import TRANSITION_TESTS
+from .test_behaviors import BEHAVIOR_TESTS
+from .test_validation import VALIDATION_TESTS
+from .test_contracts import CONTRACTS_TESTS
 
 TEST_GROUPS = [
     ("Stick Basic", STICK_BASIC_TESTS),
     ("Stick Over", STICK_OVER_TESTS),
     ("Stick Hold/Revert", STICK_HOLD_REVERT_TESTS),
+    ("Stick Advanced", STICK_ADVANCED_TESTS),
     ("Trigger", TRIGGER_TESTS),
+    ("Trigger Advanced", TRIGGER_ADVANCED_TESTS),
     ("Layers", LAYER_TESTS),
     ("Buttons", BUTTON_TESTS),
     ("State", STATE_TESTS),
     ("Stop/Reset", STOP_RESET_TESTS),
     ("Transitions", TRANSITION_TESTS),
+    ("Behaviors", BEHAVIOR_TESTS),
+    ("Validation", VALIDATION_TESTS),
+    ("Contracts", CONTRACTS_TESTS),
 ]
 
 _test_runner_state = {
