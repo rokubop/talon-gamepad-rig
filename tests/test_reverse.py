@@ -16,20 +16,24 @@ def test_reverse_instant_stick(on_success, on_failure):
     setup()
     r = rig()
     r.left_stick.to(1, 0).run()
-    r.reverse()
 
-    def check():
-        try:
-            pos = r.state.left_stick
-            assert abs(pos.x - (-1.0)) < 0.1, f"Expected x~-1.0, got {pos.x}"
-            assert abs(pos.y) < 0.1, f"Expected y~0, got {pos.y}"
-            on_success()
-        except Exception as e:
-            on_failure(str(e))
-        finally:
-            teardown()
+    def do_reverse():
+        r.reverse()
 
-    cron.after(VISIBLE_MS, check)
+        def check():
+            try:
+                pos = r.state.left_stick
+                assert abs(pos.x - (-1.0)) < 0.1, f"Expected x~-1.0, got {pos.x}"
+                assert abs(pos.y) < 0.1, f"Expected y~0, got {pos.y}"
+                on_success()
+            except Exception as e:
+                on_failure(str(e))
+            finally:
+                teardown()
+
+        cron.after(VISIBLE_MS, check)
+
+    cron.after(VISIBLE_MS, do_reverse)
 
 
 def test_reverse_instant_diagonal(on_success, on_failure):
@@ -37,20 +41,24 @@ def test_reverse_instant_diagonal(on_success, on_failure):
     setup()
     r = rig()
     r.left_stick.to(0.5, 0.5).run()
-    r.reverse()
 
-    def check():
-        try:
-            pos = r.state.left_stick
-            assert abs(pos.x - (-0.5)) < 0.1, f"Expected x~-0.5, got {pos.x}"
-            assert abs(pos.y - (-0.5)) < 0.1, f"Expected y~-0.5, got {pos.y}"
-            on_success()
-        except Exception as e:
-            on_failure(str(e))
-        finally:
-            teardown()
+    def do_reverse():
+        r.reverse()
 
-    cron.after(VISIBLE_MS, check)
+        def check():
+            try:
+                pos = r.state.left_stick
+                assert abs(pos.x - (-0.5)) < 0.1, f"Expected x~-0.5, got {pos.x}"
+                assert abs(pos.y - (-0.5)) < 0.1, f"Expected y~-0.5, got {pos.y}"
+                on_success()
+            except Exception as e:
+                on_failure(str(e))
+            finally:
+                teardown()
+
+        cron.after(VISIBLE_MS, check)
+
+    cron.after(VISIBLE_MS, do_reverse)
 
 
 def test_reverse_instant_preserves_triggers(on_success, on_failure):
@@ -59,21 +67,25 @@ def test_reverse_instant_preserves_triggers(on_success, on_failure):
     r = rig()
     r.left_stick.to(1, 0).run()
     r.left_trigger.to(0.7).run()
-    r.reverse()
 
-    def check():
-        try:
-            val = r.state.left_trigger
-            assert abs(val - 0.7) < 0.05, f"Expected trigger 0.7 preserved, got {val}"
-            pos = r.state.left_stick
-            assert abs(pos.x - (-1.0)) < 0.1, f"Expected stick reversed, got {pos.x}"
-            on_success()
-        except Exception as e:
-            on_failure(str(e))
-        finally:
-            teardown()
+    def do_reverse():
+        r.reverse()
 
-    cron.after(VISIBLE_MS, check)
+        def check():
+            try:
+                val = r.state.left_trigger
+                assert abs(val - 0.7) < 0.05, f"Expected trigger 0.7 preserved, got {val}"
+                pos = r.state.left_stick
+                assert abs(pos.x - (-1.0)) < 0.1, f"Expected stick reversed, got {pos.x}"
+                on_success()
+            except Exception as e:
+                on_failure(str(e))
+            finally:
+                teardown()
+
+        cron.after(VISIBLE_MS, check)
+
+    cron.after(VISIBLE_MS, do_reverse)
 
 
 def test_reverse_instant_both_sticks(on_success, on_failure):
@@ -82,21 +94,25 @@ def test_reverse_instant_both_sticks(on_success, on_failure):
     r = rig()
     r.left_stick.to(1, 0).run()
     r.right_stick.to(0, 1).run()
-    r.reverse()
 
-    def check():
-        try:
-            left = r.state.left_stick
-            right = r.state.right_stick
-            assert abs(left.x - (-1.0)) < 0.1, f"Expected left x~-1.0, got {left.x}"
-            assert abs(right.y - (-1.0)) < 0.1, f"Expected right y~-1.0, got {right.y}"
-            on_success()
-        except Exception as e:
-            on_failure(str(e))
-        finally:
-            teardown()
+    def do_reverse():
+        r.reverse()
 
-    cron.after(VISIBLE_MS, check)
+        def check():
+            try:
+                left = r.state.left_stick
+                right = r.state.right_stick
+                assert abs(left.x - (-1.0)) < 0.1, f"Expected left x~-1.0, got {left.x}"
+                assert abs(right.y - (-1.0)) < 0.1, f"Expected right y~-1.0, got {right.y}"
+                on_success()
+            except Exception as e:
+                on_failure(str(e))
+            finally:
+                teardown()
+
+        cron.after(VISIBLE_MS, check)
+
+    cron.after(VISIBLE_MS, do_reverse)
 
 
 def test_reverse_double_returns_to_original(on_success, on_failure):
@@ -104,21 +120,29 @@ def test_reverse_double_returns_to_original(on_success, on_failure):
     setup()
     r = rig()
     r.left_stick.to(0.7, 0.3).run()
-    r.reverse()
-    r.reverse()
 
-    def check():
-        try:
-            pos = r.state.left_stick
-            assert abs(pos.x - 0.7) < 0.1, f"Expected x~0.7, got {pos.x}"
-            assert abs(pos.y - 0.3) < 0.1, f"Expected y~0.3, got {pos.y}"
-            on_success()
-        except Exception as e:
-            on_failure(str(e))
-        finally:
-            teardown()
+    def do_first_reverse():
+        r.reverse()
 
-    cron.after(VISIBLE_MS, check)
+        def do_second_reverse():
+            r.reverse()
+
+            def check():
+                try:
+                    pos = r.state.left_stick
+                    assert abs(pos.x - 0.7) < 0.1, f"Expected x~0.7, got {pos.x}"
+                    assert abs(pos.y - 0.3) < 0.1, f"Expected y~0.3, got {pos.y}"
+                    on_success()
+                except Exception as e:
+                    on_failure(str(e))
+                finally:
+                    teardown()
+
+            cron.after(VISIBLE_MS, check)
+
+        cron.after(VISIBLE_MS, do_second_reverse)
+
+    cron.after(VISIBLE_MS, do_first_reverse)
 
 
 # ============================================================================

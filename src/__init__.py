@@ -282,6 +282,11 @@ class Rig:
         self._state._base_left_stick = self._state._base_left_stick * -1
         self._state._base_right_stick = self._state._base_right_stick * -1
 
+        # Flush to hardware immediately — unlike mouse-rig, gamepad sticks can be
+        # held at a fixed offset with no frame loop running, so reverse needs to
+        # push the new state to the virtual controller synchronously.
+        self._state._flush_to_hardware()
+
     def stop(self, ms: Optional[float] = None, easing: str = "linear") -> StopHandle:
         """Stop everything: bake all layers, clear builders, return to neutral
 

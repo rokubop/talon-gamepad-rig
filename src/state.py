@@ -254,11 +254,7 @@ def _build_classes(core):
             super()._finalize_builder_completion(builder, group)
 
             # Flush to hardware for instant operations (no frame loop runs)
-            lt, rt, ltrig, rtrig = self._compute_current_state()
-            self._apply_to_hardware(
-                clamp_stick_vec2(lt), clamp_stick_vec2(rt),
-                clamp_trigger_value(ltrig), clamp_trigger_value(rtrig),
-            )
+            self._flush_to_hardware()
 
         # ========================================================================
         # ABSTRACT IMPLEMENTATIONS
@@ -560,6 +556,18 @@ def _build_classes(core):
         # ========================================================================
         # HARDWARE
         # ========================================================================
+
+        def _flush_to_hardware(self):
+            """Compute current state and apply to hardware.
+
+            Used by synchronous operations (instant builders, reverse) that
+            modify state outside the frame loop.
+            """
+            lt, rt, ltrig, rtrig = self._compute_current_state()
+            self._apply_to_hardware(
+                clamp_stick_vec2(lt), clamp_stick_vec2(rt),
+                clamp_trigger_value(ltrig), clamp_trigger_value(rtrig),
+            )
 
         def _apply_to_hardware(self, lt, rt, ltrig: float, rtrig: float):
             """Apply state to vgamepad hardware using single batch update"""
