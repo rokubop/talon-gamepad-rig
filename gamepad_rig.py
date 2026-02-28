@@ -10,6 +10,24 @@ from .src import gamepad_api
 
 mod = Module()
 
+mod.setting(
+    "gamepad_rig_stick_deadzone",
+    type=float,
+    default=0.24,
+    desc="Stick deadzone compensation. Values sent to vgamepad are scaled to bypass "
+         "the Windows/XInput deadzone so that rig values map 1:1 to game input. "
+         "Set to 0 to disable compensation. Default 0.24 matches Xbox XInput deadzone.",
+)
+
+mod.setting(
+    "gamepad_rig_trigger_deadzone",
+    type=float,
+    default=0.25,
+    desc="Trigger deadzone compensation. Values sent to vgamepad are scaled to bypass "
+         "the Windows/XInput trigger deadzone. "
+         "Set to 0 to disable compensation. Default 0.25 matches Xbox XInput trigger threshold.",
+)
+
 STICK_DIRECTION_MAP = {
     "left": (-1, 0),
     "right": (1, 0),
@@ -41,24 +59,24 @@ class Actions:
 
         ```python
         gamepad = actions.user.gamepad_rig()
-        
+
         # Basic stick control
         gamepad.left_stick.to(1, 0)  # Full right
         gamepad.left_stick.to(1, 0).over(1000)  # Smooth transition
-        
+
         # Magnitude/direction decomposition
         gamepad.left_stick.magnitude.to(0.5)
         gamepad.left_stick.direction.to(1, 0)
         gamepad.left_stick.direction.by(90).over(1000)  # Rotate 90° over 1s
-        
+
         # Trigger control
         gamepad.left_trigger.to(1).over(100).revert(100)
         gamepad.right_trigger.to(0.5)  # Half press for aiming
-        
+
         # Layer system
         gamepad.layer("aim").left_stick.magnitude.override.to(0.3)
         gamepad.layer("aim").revert(200)
-        
+
         # Stop everything
         gamepad.stop()
         gamepad.stop(500)  # Smooth stop over 500ms
@@ -77,7 +95,7 @@ class Actions:
 
     def gamepad_rig_stop(transition_ms: int = None) -> None:
         """Stop all gamepad activity
-        
+
         Args:
             transition_ms: Duration to transition to neutral (None = instant)
         """
@@ -92,7 +110,7 @@ class Actions:
         easing: str = None
     ) -> None:
         """Move left stick to position
-        
+
         Args:
             x: Target x position [-1, 1]
             y: Target y position [-1, 1]
@@ -101,7 +119,7 @@ class Actions:
         """
         gamepad = actions.user.gamepad_rig()
         builder = gamepad.left_stick.to(x, y)
-        
+
         if over_ms is not None:
             builder = builder.over(over_ms, easing or "linear")
 
@@ -112,7 +130,7 @@ class Actions:
         easing: str = None
     ) -> None:
         """Move right stick to position
-        
+
         Args:
             x: Target x position [-1, 1]
             y: Target y position [-1, 1]
@@ -121,7 +139,7 @@ class Actions:
         """
         gamepad = actions.user.gamepad_rig()
         builder = gamepad.right_stick.to(x, y)
-        
+
         if over_ms is not None:
             builder = builder.over(over_ms, easing or "linear")
 
@@ -131,7 +149,7 @@ class Actions:
         easing: str = None
     ) -> None:
         """Set left trigger value
-        
+
         Args:
             value: Target trigger value [0, 1]
             over_ms: Duration in ms (optional)
@@ -139,7 +157,7 @@ class Actions:
         """
         gamepad = actions.user.gamepad_rig()
         builder = gamepad.left_trigger.to(value)
-        
+
         if over_ms is not None:
             builder = builder.over(over_ms, easing or "linear")
 
@@ -160,10 +178,6 @@ class Actions:
 
         if over_ms is not None:
             builder = builder.over(over_ms, easing or "linear")
-
-    def gamepad_rig_reset() -> None:
-        """Reset the gamepad rig to default state (all neutral)"""
-        actions.user.gamepad_rig().reset()
 
     # =====================================================================
     # Left Thumb - Direction & Rotation
@@ -492,6 +506,10 @@ class Actions:
     def gamepad_rig_button_valid() -> list:
         """Get list of valid gamepad button names"""
         return gamepad_api.get_valid_buttons()
+
+    def gamepad_rig_reset() -> None:
+        """Reset the gamepad rig to default state (all neutral)"""
+        actions.user.gamepad_rig().reset()
 
     # =====================================================================
     # Device Lifecycle

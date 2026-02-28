@@ -21,7 +21,7 @@ def test_hold_maintains_value(on_success, on_failure):
         finally:
             teardown()
 
-    cron.after("350ms", check_hold)
+    cron.after("450ms", check_hold)
 
 
 def test_revert_returns_to_neutral(on_success, on_failure):

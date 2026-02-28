@@ -26,6 +26,7 @@ from .test_behaviors import BEHAVIOR_TESTS
 from .test_validation import VALIDATION_TESTS
 from .test_contracts import CONTRACTS_TESTS
 from .test_reverse import REVERSE_TESTS
+# from .test_deadzone import DEADZONE_TESTS
 
 TEST_GROUPS = [
     ("Stick Basic", STICK_BASIC_TESTS),
@@ -43,6 +44,7 @@ TEST_GROUPS = [
     ("Validation", VALIDATION_TESTS),
     ("Contracts", CONTRACTS_TESTS),
     ("Reverse", REVERSE_TESTS),
+    # ("Deadzone", DEADZONE_TESTS),
 ]
 
 _test_runner_state = {

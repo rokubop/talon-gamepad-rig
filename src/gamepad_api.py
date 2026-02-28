@@ -5,6 +5,7 @@ Supports analog sticks and triggers with float values.
 """
 
 from typing import Optional
+from talon import settings
 
 # Try to import vgamepad, but allow the module to load even if not available
 # This allows the code to be parsed/tested without vgamepad installed
@@ -90,6 +91,35 @@ def update_right_trigger(value: float) -> None:
     _gamepad.update()
 
 
+def _compensate_stick_deadzone(value: float) -> float:
+    """Compensate for Windows/XInput stick deadzone on a single axis.
+
+    Maps logical [-1, 1] to hardware values that arrive as [-1, 1]
+    after Windows applies its deadzone. Values near zero stay zero.
+    """
+    deadzone = settings.get("user.gamepad_rig_stick_deadzone", 0.24)
+    if deadzone <= 0:
+        return value
+    if abs(value) < 0.001:
+        return 0.0
+    sign = 1.0 if value > 0 else -1.0
+    return sign * (abs(value) * (1.0 - deadzone) + deadzone)
+
+
+def _compensate_trigger_deadzone(value: float) -> float:
+    """Compensate for Windows/XInput trigger deadzone.
+
+    Maps logical [0, 1] to hardware values that arrive as [0, 1]
+    after Windows applies its trigger threshold.
+    """
+    deadzone = settings.get("user.gamepad_rig_trigger_deadzone", 0.25)
+    if deadzone <= 0:
+        return value
+    if value < 0.001:
+        return 0.0
+    return value * (1.0 - deadzone) + deadzone
+
+
 def update_all(
     lt_x: float, lt_y: float,
     rt_x: float, rt_y: float,
@@ -105,15 +135,15 @@ def update_all(
     """
     _ensure_gamepad()
     _gamepad.left_joystick_float(
-        x_value_float=max(-1.0, min(1.0, lt_x)),
-        y_value_float=max(-1.0, min(1.0, lt_y))
+        x_value_float=max(-1.0, min(1.0, _compensate_stick_deadzone(lt_x))),
+        y_value_float=max(-1.0, min(1.0, _compensate_stick_deadzone(lt_y)))
     )
     _gamepad.right_joystick_float(
-        x_value_float=max(-1.0, min(1.0, rt_x)),
-        y_value_float=max(-1.0, min(1.0, rt_y))
+        x_value_float=max(-1.0, min(1.0, _compensate_stick_deadzone(rt_x))),
+        y_value_float=max(-1.0, min(1.0, _compensate_stick_deadzone(rt_y)))
     )
-    _gamepad.left_trigger_float(value_float=max(0.0, min(1.0, lt_val)))
-    _gamepad.right_trigger_float(value_float=max(0.0, min(1.0, rt_val)))
+    _gamepad.left_trigger_float(value_float=max(0.0, min(1.0, _compensate_trigger_deadzone(lt_val))))
+    _gamepad.right_trigger_float(value_float=max(0.0, min(1.0, _compensate_trigger_deadzone(rt_val))))
     _gamepad.update()
 
 
