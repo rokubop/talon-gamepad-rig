@@ -11,18 +11,23 @@
   "tags": [],
   "dependencies": {
     "talon-rig-core": {
-      "min_version": "1.0.0",
+      "min_version": "0.5.0",
       "namespace": "user.rig_core",
       "github": "https://github.com/rokubop/talon-rig-core"
-    },
+    }
+  },
+  "devDependencies": {
     "talon-ui-elements": {
       "min_version": "0.15.0",
       "namespace": "user.ui_elements",
       "github": "https://github.com/rokubop/talon-ui-elements"
     }
   },
-  "devDependencies": {},
   "contributes": {
+    "settings": [
+      "user.gamepad_rig_stick_deadzone",
+      "user.gamepad_rig_trigger_deadzone"
+    ],
     "actions": [
       "user.gamepad_rig",
       "user.gamepad_rig_button_press",
@@ -64,6 +69,8 @@
   },
   "depends": {
     "actions": [
+      "user.gamepad_tester_get_stick",
+      "user.gamepad_tester_get_trigger",
       "user.gamepad_tester_toggle",
       "user.rig_core",
       "user.ui_elements",
