@@ -3,7 +3,7 @@
 Provides Talon actions for gamepad control using fluent API.
 """
 
-from talon import Module, actions
+from talon import Module, actions, settings
 from typing import Any
 from .src import rig as get_rig, reload_rig
 from .src import gamepad_api
@@ -26,6 +26,34 @@ mod.setting(
     desc="Trigger deadzone compensation. Values sent to vgamepad are scaled to bypass "
          "the Windows/XInput trigger deadzone. "
          "Set to 0 to disable compensation. Default 0.25 matches Xbox XInput trigger threshold.",
+)
+
+mod.setting(
+    "gamepad_rig_smooth_turn_ms",
+    type=int,
+    default=500,
+    desc="Base duration (ms) for smooth stick direction changes. Scales with magnitude (higher = smoother turns).",
+)
+
+mod.setting(
+    "gamepad_rig_smooth_turn_easing",
+    type=str,
+    default="ease_out2",
+    desc="Easing function for smooth stick direction changes.",
+)
+
+mod.setting(
+    "gamepad_rig_smooth_magnitude_ms",
+    type=int,
+    default=200,
+    desc="Duration (ms) for smooth stick magnitude ramp-up from idle.",
+)
+
+mod.setting(
+    "gamepad_rig_smooth_magnitude_easing",
+    type=str,
+    default="ease_in_out",
+    desc="Easing function for smooth stick magnitude changes.",
 )
 
 STICK_DIRECTION_MAP = {
@@ -102,47 +130,6 @@ class Actions:
         gamepad = actions.user.gamepad_rig()
         gamepad.stop(ms=transition_ms)
 
-    # Convenience actions for common operations
-    def gamepad_rig_left_stick_to(
-        x: float,
-        y: float,
-        over_ms: int = None,
-        easing: str = None
-    ) -> None:
-        """Move left stick to position
-
-        Args:
-            x: Target x position [-1, 1]
-            y: Target y position [-1, 1]
-            over_ms: Duration in ms (optional)
-            easing: Easing function (optional)
-        """
-        gamepad = actions.user.gamepad_rig()
-        builder = gamepad.left_stick.to(x, y)
-
-        if over_ms is not None:
-            builder = builder.over(over_ms, easing or "linear")
-
-    def gamepad_rig_right_stick_to(
-        x: float,
-        y: float,
-        over_ms: int = None,
-        easing: str = None
-    ) -> None:
-        """Move right stick to position
-
-        Args:
-            x: Target x position [-1, 1]
-            y: Target y position [-1, 1]
-            over_ms: Duration in ms (optional)
-            easing: Easing function (optional)
-        """
-        gamepad = actions.user.gamepad_rig()
-        builder = gamepad.right_stick.to(x, y)
-
-        if over_ms is not None:
-            builder = builder.over(over_ms, easing or "linear")
-
     def gamepad_rig_left_trigger_to(
         value: float,
         over_ms: int = None,
@@ -179,6 +166,46 @@ class Actions:
         if over_ms is not None:
             builder = builder.over(over_ms, easing or "linear")
 
+    def gamepad_rig_left_trigger_stop(
+        transition_ms: int = None, easing: str = None
+    ) -> None:
+        """Stop left trigger: set to neutral and remove all its layers.
+
+        Args:
+            transition_ms: Time in ms to transition to neutral (None = instant)
+            easing: Easing function (optional)
+        """
+        gamepad = actions.user.gamepad_rig()
+        gamepad.left_trigger.stop(transition_ms, easing or "linear")
+
+    def gamepad_rig_right_trigger_stop(
+        transition_ms: int = None, easing: str = None
+    ) -> None:
+        """Stop right trigger: set to neutral and remove all its layers.
+
+        Args:
+            transition_ms: Time in ms to transition to neutral (None = instant)
+            easing: Easing function (optional)
+        """
+        gamepad = actions.user.gamepad_rig()
+        gamepad.right_trigger.stop(transition_ms, easing or "linear")
+
+    # =====================================================================
+    # Left Thumb - Stop
+    # =====================================================================
+
+    def gamepad_rig_left_stick_stop(
+        transition_ms: int = None, easing: str = None
+    ) -> None:
+        """Stop left stick: set to neutral and remove all its layers.
+
+        Args:
+            transition_ms: Time in ms to transition to neutral (None = instant)
+            easing: Easing function (optional)
+        """
+        gamepad = actions.user.gamepad_rig()
+        gamepad.left_stick.stop(transition_ms, easing or "linear")
+
     # =====================================================================
     # Left Thumb - Direction & Rotation
     # =====================================================================
@@ -189,6 +216,7 @@ class Actions:
         force: bool = False,
         over_ms: int = None,
         easing: str = None,
+        callback: callable = None,
     ) -> None:
         """Push left stick in cardinal direction
 
@@ -200,6 +228,7 @@ class Actions:
             force: If True, override current magnitude with magnitude param
             over_ms: Duration in ms (optional)
             easing: Easing function (optional)
+            callback: Function to call when transition completes (optional)
         """
         dx, dy = _parse_direction(direction)
         gamepad = actions.user.gamepad_rig()
@@ -209,7 +238,77 @@ class Actions:
         else:
             builder = gamepad.left_stick.direction.to(dx, dy)
         if over_ms is not None:
-            builder.over(over_ms, easing or "linear")
+            builder = builder.over(over_ms, easing or "linear")
+        if callback is not None:
+            builder.then(callback)
+
+    def gamepad_rig_left_stick_smooth(
+        direction: str,
+        magnitude: float = None,
+        force: bool = False,
+        scale: float = 1.0,
+    ) -> None:
+        """Like left_stick() but with smooth turns and gradual magnitude changes.
+        Easing controlled by settings, timing scaled by `scale`.
+
+        Args:
+            direction: "left", "right", "up", "down", "up_left", etc.
+            magnitude: Target magnitude 0-1 (None = keep current, or 1 if idle)
+            force: If True, override current magnitude with magnitude param
+            scale: Multiplier for all smooth timing (0.5 = snappier, 2.0 = smoother)
+        """
+        dx, dy = _parse_direction(direction)
+        gamepad = actions.user.gamepad_rig()
+        base_turn_ms = settings.get("user.gamepad_rig_smooth_turn_ms")
+        turn_easing = settings.get("user.gamepad_rig_smooth_turn_easing")
+        mag_ms = int(settings.get("user.gamepad_rig_smooth_magnitude_ms") * scale)
+        mag_easing = settings.get("user.gamepad_rig_smooth_magnitude_easing")
+
+        mag = magnitude if magnitude is not None else 1
+        current_mag = gamepad.state.left_stick.magnitude()
+
+        if not current_mag:
+            # From idle: snap direction, ramp magnitude
+            gamepad.left_stick.direction.to(dx, dy)
+            gamepad.left_stick.magnitude.to(mag).over(mag_ms, mag_easing)
+        else:
+            # Already active: smooth turn, scale with magnitude
+            mag_factor = max(1.0, current_mag / 0.3)
+            turn_ms = int(base_turn_ms * scale * mag_factor)
+            gamepad.left_stick.direction.to(dx, dy).over(turn_ms, turn_easing)
+            if force:
+                gamepad.left_stick.magnitude.to(mag).over(mag_ms, mag_easing)
+
+    def gamepad_rig_left_stick_add(
+        direction: str,
+        magnitude: float = None,
+        over_ms: int = None,
+        hold_ms: int = None,
+        revert_ms: int = None,
+        callback: callable = None,
+    ) -> None:
+        """Add to left stick position (relative movement using .by())
+
+        Args:
+            direction: "left", "right", "up", "down", "up_left", etc.
+            magnitude: Magnitude 0-1 (default 1)
+            over_ms: Duration in ms (optional)
+            hold_ms: Hold duration before revert (optional)
+            revert_ms: Revert duration (optional)
+            callback: Function to call when transition completes (optional)
+        """
+        dx, dy = _parse_direction(direction)
+        mag = magnitude if magnitude is not None else 1
+        gamepad = actions.user.gamepad_rig()
+        builder = gamepad.left_stick.by(dx * mag, dy * mag)
+        if over_ms is not None:
+            builder = builder.over(over_ms)
+        if hold_ms is not None:
+            builder = builder.hold(hold_ms)
+        if revert_ms is not None:
+            builder = builder.revert(revert_ms)
+        if callback is not None:
+            builder.then(callback)
 
     def gamepad_rig_left_stick_reverse(
         over_ms: int = None, easing: str = None
@@ -305,6 +404,76 @@ class Actions:
             builder.revert(revert_ms)
 
     # =====================================================================
+    # Left Thumb - Boost
+    # =====================================================================
+
+    def gamepad_rig_left_stick_boost(
+        amount: float,
+        over_ms: int = 500,
+        hold_ms: int = 0,
+        release_ms: int = 500,
+        stacks: int = 0,
+        max_magnitude: float = 0,
+    ) -> None:
+        """One-shot magnitude boost: ramp up, hold, release.
+        Uses the implicit magnitude.offset layer.
+
+        Args:
+            amount: Magnitude to add.
+            over_ms: Time to ramp up to full amount.
+            hold_ms: Time to hold at full amount before releasing.
+            release_ms: Time to decay back to 0.
+            stacks: Max concurrent boosts. 0 = unlimited.
+            max_magnitude: Max total offset from stacked boosts. 0 = unlimited.
+        """
+        gamepad = actions.user.gamepad_rig()
+        builder = gamepad.left_stick.magnitude.offset.add(amount)
+        if max_magnitude:
+            builder = builder.max(max_magnitude)
+        builder.over(over_ms).hold(hold_ms).revert(release_ms).stack(stacks)
+
+    def gamepad_rig_left_stick_boost_start(
+        amount: float,
+        over_ms: int = 500,
+    ) -> None:
+        """Start a sustained magnitude boost. Ramps up and holds until boost_stop is called.
+        Safe for held-input patterns (noise/pedal) — repeated calls are no-ops (.stack(1)).
+
+        Args:
+            amount: Magnitude to add.
+            over_ms: Time to ramp up to full amount.
+        """
+        gamepad = actions.user.gamepad_rig()
+        gamepad.left_stick.magnitude.offset.add(amount).over(over_ms).stack(1)
+
+    def gamepad_rig_left_stick_boost_stop(
+        release_ms: int = 500,
+    ) -> None:
+        """Stop a sustained magnitude boost. Reverts the magnitude.offset layer back to 0.
+
+        Args:
+            release_ms: Time to decay back to 0.
+        """
+        gamepad = actions.user.gamepad_rig()
+        gamepad.left_stick.magnitude.offset.revert(release_ms)
+
+    # =====================================================================
+    # Right Thumb - Stop
+    # =====================================================================
+
+    def gamepad_rig_right_stick_stop(
+        transition_ms: int = None, easing: str = None
+    ) -> None:
+        """Stop right stick: set to neutral and remove all its layers.
+
+        Args:
+            transition_ms: Time in ms to transition to neutral (None = instant)
+            easing: Easing function (optional)
+        """
+        gamepad = actions.user.gamepad_rig()
+        gamepad.right_stick.stop(transition_ms, easing or "linear")
+
+    # =====================================================================
     # Right Thumb - Direction & Rotation
     # =====================================================================
 
@@ -314,6 +483,7 @@ class Actions:
         force: bool = False,
         over_ms: int = None,
         easing: str = None,
+        callback: callable = None,
     ) -> None:
         """Push right stick in cardinal direction
 
@@ -325,6 +495,7 @@ class Actions:
             force: If True, override current magnitude with magnitude param
             over_ms: Duration in ms (optional)
             easing: Easing function (optional)
+            callback: Function to call when transition completes (optional)
         """
         dx, dy = _parse_direction(direction)
         gamepad = actions.user.gamepad_rig()
@@ -334,7 +505,77 @@ class Actions:
         else:
             builder = gamepad.right_stick.direction.to(dx, dy)
         if over_ms is not None:
-            builder.over(over_ms, easing or "linear")
+            builder = builder.over(over_ms, easing or "linear")
+        if callback is not None:
+            builder.then(callback)
+
+    def gamepad_rig_right_stick_smooth(
+        direction: str,
+        magnitude: float = None,
+        force: bool = False,
+        scale: float = 1.0,
+    ) -> None:
+        """Like right_stick() but with smooth turns and gradual magnitude changes.
+        Easing controlled by settings, timing scaled by `scale`.
+
+        Args:
+            direction: "left", "right", "up", "down", "up_left", etc.
+            magnitude: Target magnitude 0-1 (None = keep current, or 1 if idle)
+            force: If True, override current magnitude with magnitude param
+            scale: Multiplier for all smooth timing (0.5 = snappier, 2.0 = smoother)
+        """
+        dx, dy = _parse_direction(direction)
+        gamepad = actions.user.gamepad_rig()
+        base_turn_ms = settings.get("user.gamepad_rig_smooth_turn_ms")
+        turn_easing = settings.get("user.gamepad_rig_smooth_turn_easing")
+        mag_ms = int(settings.get("user.gamepad_rig_smooth_magnitude_ms") * scale)
+        mag_easing = settings.get("user.gamepad_rig_smooth_magnitude_easing")
+
+        mag = magnitude if magnitude is not None else 1
+        current_mag = gamepad.state.right_stick.magnitude()
+
+        if not current_mag:
+            # From idle: snap direction, ramp magnitude
+            gamepad.right_stick.direction.to(dx, dy)
+            gamepad.right_stick.magnitude.to(mag).over(mag_ms, mag_easing)
+        else:
+            # Already active: smooth turn, scale with magnitude
+            mag_factor = max(1.0, current_mag / 0.3)
+            turn_ms = int(base_turn_ms * scale * mag_factor)
+            gamepad.right_stick.direction.to(dx, dy).over(turn_ms, turn_easing)
+            if force:
+                gamepad.right_stick.magnitude.to(mag).over(mag_ms, mag_easing)
+
+    def gamepad_rig_right_stick_add(
+        direction: str,
+        magnitude: float = None,
+        over_ms: int = None,
+        hold_ms: int = None,
+        revert_ms: int = None,
+        callback: callable = None,
+    ) -> None:
+        """Add to right stick position (relative movement using .by())
+
+        Args:
+            direction: "left", "right", "up", "down", "up_left", etc.
+            magnitude: Magnitude 0-1 (default 1)
+            over_ms: Duration in ms (optional)
+            hold_ms: Hold duration before revert (optional)
+            revert_ms: Revert duration (optional)
+            callback: Function to call when transition completes (optional)
+        """
+        dx, dy = _parse_direction(direction)
+        mag = magnitude if magnitude is not None else 1
+        gamepad = actions.user.gamepad_rig()
+        builder = gamepad.right_stick.by(dx * mag, dy * mag)
+        if over_ms is not None:
+            builder = builder.over(over_ms)
+        if hold_ms is not None:
+            builder = builder.hold(hold_ms)
+        if revert_ms is not None:
+            builder = builder.revert(revert_ms)
+        if callback is not None:
+            builder.then(callback)
 
     def gamepad_rig_right_stick_reverse(
         over_ms: int = None, easing: str = None
@@ -428,6 +669,60 @@ class Actions:
             builder = builder.hold(hold_ms)
         if revert_ms is not None:
             builder.revert(revert_ms)
+
+    # =====================================================================
+    # Right Thumb - Boost
+    # =====================================================================
+
+    def gamepad_rig_right_stick_boost(
+        amount: float,
+        over_ms: int = 500,
+        hold_ms: int = 0,
+        release_ms: int = 500,
+        stacks: int = 0,
+        max_magnitude: float = 0,
+    ) -> None:
+        """One-shot magnitude boost: ramp up, hold, release.
+        Uses the implicit magnitude.offset layer.
+
+        Args:
+            amount: Magnitude to add.
+            over_ms: Time to ramp up to full amount.
+            hold_ms: Time to hold at full amount before releasing.
+            release_ms: Time to decay back to 0.
+            stacks: Max concurrent boosts. 0 = unlimited.
+            max_magnitude: Max total offset from stacked boosts. 0 = unlimited.
+        """
+        gamepad = actions.user.gamepad_rig()
+        builder = gamepad.right_stick.magnitude.offset.add(amount)
+        if max_magnitude:
+            builder = builder.max(max_magnitude)
+        builder.over(over_ms).hold(hold_ms).revert(release_ms).stack(stacks)
+
+    def gamepad_rig_right_stick_boost_start(
+        amount: float,
+        over_ms: int = 500,
+    ) -> None:
+        """Start a sustained magnitude boost. Ramps up and holds until boost_stop is called.
+        Safe for held-input patterns (noise/pedal) — repeated calls are no-ops (.stack(1)).
+
+        Args:
+            amount: Magnitude to add.
+            over_ms: Time to ramp up to full amount.
+        """
+        gamepad = actions.user.gamepad_rig()
+        gamepad.right_stick.magnitude.offset.add(amount).over(over_ms).stack(1)
+
+    def gamepad_rig_right_stick_boost_stop(
+        release_ms: int = 500,
+    ) -> None:
+        """Stop a sustained magnitude boost. Reverts the magnitude.offset layer back to 0.
+
+        Args:
+            release_ms: Time to decay back to 0.
+        """
+        gamepad = actions.user.gamepad_rig()
+        gamepad.right_stick.magnitude.offset.revert(release_ms)
 
     # =====================================================================
     # State Queries

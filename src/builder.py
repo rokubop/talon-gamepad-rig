@@ -723,6 +723,16 @@ class StickPropertyBuilder:
         """Revert this property/layer"""
         return self.gamepad_builder.revert(ms, easing, **kwargs)
 
+    def stop(self, ms: Optional[float] = None, easing: str = "linear"):
+        """Stop this stick: set to neutral and remove all its layers.
+
+        Args:
+            ms: Duration to transition to neutral (None = instant)
+            easing: Easing function for smooth transition
+        """
+        self.gamepad_builder.gamepad_state.stick_stop(self.property_name, ms, easing)
+        self.gamepad_builder._mark_invalid()
+
     def __call__(self, x: float, y: float) -> GamepadBuilder:
         """Shorthand for .to(x, y)"""
         return self.to(x, y)
@@ -838,6 +848,16 @@ class TriggerPropertyBuilder:
     def revert(self, ms: Optional[float] = None, easing: str = "linear", **kwargs) -> GamepadBuilder:
         """Revert this property/layer"""
         return self.gamepad_builder.revert(ms, easing, **kwargs)
+
+    def stop(self, ms: Optional[float] = None, easing: str = "linear"):
+        """Stop this trigger: set to neutral and remove all its layers.
+
+        Args:
+            ms: Duration to transition to neutral (None = instant)
+            easing: Easing function for smooth transition
+        """
+        self.gamepad_builder.gamepad_state.trigger_stop(self.property_name, ms, easing)
+        self.gamepad_builder._mark_invalid()
 
     def __call__(self, value: float) -> GamepadBuilder:
         """Shorthand for .to(value)"""

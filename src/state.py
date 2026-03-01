@@ -97,6 +97,146 @@ def _build_classes(core):
         # STOP / RESET (abstract impl)
         # ========================================================================
 
+        def trigger_stop(self, trigger: str, transition_ms: Optional[float] = None, easing: str = "linear"):
+            """Stop a single trigger and remove all its layers.
+
+            Args:
+                trigger: "left_trigger" or "right_trigger"
+                transition_ms: Duration to transition to neutral (None = instant)
+                easing: Easing function for smooth transition
+            """
+            if trigger == "left_trigger":
+                base_ref = "_base_left_trigger"
+            elif trigger == "right_trigger":
+                base_ref = "_base_right_trigger"
+            else:
+                raise ValueError(f"Unknown trigger: {trigger}")
+
+            base_val = getattr(self, base_ref)
+
+            if transition_ms is not None and transition_ms > 0:
+                from .contracts import LayerType
+                if base_val != 0:
+                    from .builder import GamepadBuilder
+                    b = GamepadBuilder(self)
+                    b.config.layer_name = f"base.{trigger}"
+                    b.config.layer_type = LayerType.BASE
+                    b.config.property = trigger
+                    b.config.operator = "to"
+                    b.config.value = 0.0
+                    b.config.mode = "override"
+                    b.config.over_ms = transition_ms
+                    b.config.over_easing = easing
+                    b.run()
+
+                for layer_name in list(self._layer_groups.keys()):
+                    group = self._layer_groups[layer_name]
+                    if not group.is_base and group.property == trigger:
+                        self.trigger_revert(layer_name, transition_ms, easing)
+            else:
+                setattr(self, base_ref, 0.0)
+
+                for layer_name in list(self._layer_groups.keys()):
+                    group = self._layer_groups[layer_name]
+                    if group.property == trigger:
+                        del self._layer_groups[layer_name]
+                        if layer_name in self._layer_orders:
+                            del self._layer_orders[layer_name]
+
+                for key in list(self._debounce_pending.keys()):
+                    if trigger in str(key):
+                        _, _, _, cron_job = self._debounce_pending[key]
+                        if cron_job is not None:
+                            self._cancel_cron(cron_job)
+                        del self._debounce_pending[key]
+
+                has_active = False
+                if self._base_left_stick.x != 0 or self._base_left_stick.y != 0:
+                    has_active = True
+                if self._base_right_stick.x != 0 or self._base_right_stick.y != 0:
+                    has_active = True
+                other_trigger = "_base_right_trigger" if trigger == "left_trigger" else "_base_left_trigger"
+                if getattr(self, other_trigger) != 0:
+                    has_active = True
+                if len(self._layer_groups) > 0:
+                    has_active = True
+                if not has_active:
+                    self._stop_frame_loop()
+
+                self._flush_to_hardware()
+
+        def stick_stop(self, stick: str, transition_ms: Optional[float] = None, easing: str = "linear"):
+            """Stop a single stick and remove all its layers.
+
+            Args:
+                stick: "left_stick" or "right_stick"
+                transition_ms: Duration to transition to neutral (None = instant)
+                easing: Easing function for smooth transition
+            """
+            if stick == "left_stick":
+                base_ref = "_base_left_stick"
+            elif stick == "right_stick":
+                base_ref = "_base_right_stick"
+            else:
+                raise ValueError(f"Unknown stick: {stick}")
+
+            base_val = getattr(self, base_ref)
+
+            if transition_ms is not None and transition_ms > 0:
+                from .contracts import LayerType
+                # Smooth: transition base to neutral
+                if base_val.x != 0 or base_val.y != 0:
+                    from .builder import GamepadBuilder
+                    b = GamepadBuilder(self)
+                    b.config.layer_name = f"base.{stick}"
+                    b.config.layer_type = LayerType.BASE
+                    b.config.property = stick
+                    b.config.operator = "to"
+                    b.config.value = (0, 0)
+                    b.config.mode = "override"
+                    b.config.over_ms = transition_ms
+                    b.config.over_easing = easing
+                    b.run()
+
+                # Revert all non-base layers for this stick
+                for layer_name in list(self._layer_groups.keys()):
+                    group = self._layer_groups[layer_name]
+                    if not group.is_base and group.property == stick:
+                        self.trigger_revert(layer_name, transition_ms, easing)
+            else:
+                # Instant: zero base, remove all layers for this stick
+                setattr(self, base_ref, Vec2(0, 0))
+
+                for layer_name in list(self._layer_groups.keys()):
+                    group = self._layer_groups[layer_name]
+                    if group.property == stick:
+                        del self._layer_groups[layer_name]
+                        if layer_name in self._layer_orders:
+                            del self._layer_orders[layer_name]
+
+                # Cancel debounces for this stick
+                for key in list(self._debounce_pending.keys()):
+                    if stick in str(key):
+                        _, _, _, cron_job = self._debounce_pending[key]
+                        if cron_job is not None:
+                            self._cancel_cron(cron_job)
+                        del self._debounce_pending[key]
+
+                # Stop frame loop if nothing else is active
+                has_active = False
+                other_base = "_base_right_stick" if stick == "left_stick" else "_base_left_stick"
+                other_val = getattr(self, other_base)
+                if other_val.x != 0 or other_val.y != 0:
+                    has_active = True
+                if self._base_left_trigger != 0 or self._base_right_trigger != 0:
+                    has_active = True
+                if len(self._layer_groups) > 0:
+                    has_active = True
+                if not has_active:
+                    self._stop_frame_loop()
+
+                self._flush_to_hardware()
+
         def stop(self, transition_ms: Optional[float] = None, easing: str = "linear"):
             """Stop all gamepad activity"""
             if transition_ms is not None and transition_ms > 0:
