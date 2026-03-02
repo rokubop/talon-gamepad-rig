@@ -5,7 +5,7 @@ Provides Talon actions for gamepad control using fluent API.
 
 from talon import Module, actions
 from typing import Any
-from .src import rig as get_rig, reload_rig
+from .src import rig as get_rig, reload_rig, reset_rig
 from .src import gamepad_api
 
 mod = Module()
@@ -83,9 +83,8 @@ class Actions:
         gamepad_api.connect_gamepad()
 
     def gamepad_rig_disconnect() -> None:
-        """Disconnect the virtual gamepad device (unplugs from Windows).
-        Also reloads the rig state."""
-        reload_rig()
+        """Disconnect the virtual gamepad device (unplugs from Windows)."""
+        reset_rig()
         gamepad_api.disconnect_gamepad()
 
     def gamepad_rig_is_connected() -> bool:
