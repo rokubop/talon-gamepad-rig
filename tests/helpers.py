@@ -1,6 +1,6 @@
 """Test helpers for gamepad-rig tests.
 
-No mocks — real rig sends real output to the virtual gamepad.
+No mocks - real rig sends real output to the virtual gamepad.
 Tests verify via r.state.* and visual feedback via gamepad tester.
 """
 

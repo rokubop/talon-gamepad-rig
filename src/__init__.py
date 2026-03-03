@@ -282,7 +282,7 @@ class Rig:
         self._state._base_left_stick = self._state._base_left_stick * -1
         self._state._base_right_stick = self._state._base_right_stick * -1
 
-        # Flush to hardware immediately — unlike mouse-rig, gamepad sticks can be
+        # Flush to hardware immediately - unlike mouse-rig, gamepad sticks can be
         # held at a fixed offset with no frame loop running, so reverse needs to
         # push the new state to the virtual controller synchronously.
         self._state._flush_to_hardware()

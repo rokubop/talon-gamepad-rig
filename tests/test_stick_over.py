@@ -1,4 +1,4 @@
-"""Tests for stick .over() interpolation — async, uses real cron timing"""
+"""Tests for stick .over() interpolation - async, uses real cron timing"""
 
 from talon import cron
 from .helpers import setup, teardown

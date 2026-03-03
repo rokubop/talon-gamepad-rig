@@ -256,7 +256,7 @@ def test_trigger_offset_revert(on_success, on_failure):
 
 
 # =========================================================================
-# Layer revert (stick offset) — regression test for revert bug
+# Layer revert (stick offset) - regression test for revert bug
 # =========================================================================
 
 def test_stick_offset_revert_animated(on_success, on_failure):

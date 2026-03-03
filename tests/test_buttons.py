@@ -1,4 +1,4 @@
-"""Tests for gamepad button press/release — real hardware output."""
+"""Tests for gamepad button press/release - real hardware output."""
 
 from talon import cron
 from .helpers import setup, teardown

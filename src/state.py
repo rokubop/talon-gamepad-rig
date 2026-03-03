@@ -713,7 +713,7 @@ def _build_classes(core):
             """Apply state to vgamepad hardware using single batch update"""
             from . import gamepad_api
 
-            if not gamepad_api.is_available():
+            if not gamepad_api.is_available() or not gamepad_api.is_connected():
                 return
 
             gamepad_api.update_all(lt.x, lt.y, rt.x, rt.y, ltrig, rtrig)

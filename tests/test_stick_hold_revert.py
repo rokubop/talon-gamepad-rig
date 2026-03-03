@@ -1,4 +1,4 @@
-"""Tests for stick lifecycle phases: over → hold → revert — async"""
+"""Tests for stick lifecycle phases: over → hold → revert - async"""
 
 from talon import cron
 from .helpers import setup, teardown

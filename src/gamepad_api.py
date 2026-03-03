@@ -18,21 +18,17 @@ except ImportError:
     print("Install with: pip install vgamepad")
 
 
-# Global gamepad instance (initialized on first use)
+# Global gamepad instance (only created via connect_gamepad)
 _gamepad: Optional['vg.VX360Gamepad'] = None
 
 
-def _ensure_gamepad():
-    """Ensure gamepad is initialized"""
-    global _gamepad
-    if not _vgamepad_available:
-        raise RuntimeError(
-            "vgamepad library is not installed. "
-            "Install with: pip install vgamepad"
-        )
-    
+def _require_connected():
+    """Raise if gamepad is not connected. Call connect_gamepad() first."""
     if _gamepad is None:
-        _gamepad = vg.VX360Gamepad()
+        raise RuntimeError(
+            "Virtual gamepad is not connected. "
+            "Call connect_gamepad() first."
+        )
 
 
 def update_left_stick(x: float, y: float) -> None:
@@ -42,7 +38,7 @@ def update_left_stick(x: float, y: float) -> None:
         x: Horizontal axis, range [-1, 1] (left to right)
         y: Vertical axis, range [-1, 1] (down to up)
     """
-    _ensure_gamepad()
+    _require_connected()
     # Clamp values to valid range
     x = max(-1.0, min(1.0, x))
     y = max(-1.0, min(1.0, y))
@@ -57,7 +53,7 @@ def update_right_stick(x: float, y: float) -> None:
         x: Horizontal axis, range [-1, 1] (left to right)
         y: Vertical axis, range [-1, 1] (down to up)
     """
-    _ensure_gamepad()
+    _require_connected()
     # Clamp values to valid range
     x = max(-1.0, min(1.0, x))
     y = max(-1.0, min(1.0, y))
@@ -71,7 +67,7 @@ def update_left_trigger(value: float) -> None:
     Args:
         value: Trigger value, range [0, 1] (released to fully pressed)
     """
-    _ensure_gamepad()
+    _require_connected()
     # Clamp value to valid range
     value = max(0.0, min(1.0, value))
     _gamepad.left_trigger_float(value_float=value)
@@ -84,7 +80,7 @@ def update_right_trigger(value: float) -> None:
     Args:
         value: Trigger value, range [0, 1] (released to fully pressed)
     """
-    _ensure_gamepad()
+    _require_connected()
     # Clamp value to valid range
     value = max(0.0, min(1.0, value))
     _gamepad.right_trigger_float(value_float=value)
@@ -133,7 +129,8 @@ def update_all(
         lt_val: Left trigger [0, 1]
         rt_val: Right trigger [0, 1]
     """
-    _ensure_gamepad()
+    if _gamepad is None:
+        return
     _gamepad.left_joystick_float(
         x_value_float=max(-1.0, min(1.0, _compensate_stick_deadzone(lt_x))),
         y_value_float=max(-1.0, min(1.0, _compensate_stick_deadzone(lt_y)))
@@ -149,14 +146,22 @@ def update_all(
 
 def reset_gamepad() -> None:
     """Reset gamepad to neutral state (all sticks centered, all triggers released)"""
-    _ensure_gamepad()
+    if _gamepad is None:
+        return
     _gamepad.reset()
     _gamepad.update()
 
 
 def connect_gamepad() -> None:
     """Connect the virtual gamepad device (plugs in to Windows)"""
-    _ensure_gamepad()
+    global _gamepad
+    if not _vgamepad_available:
+        raise RuntimeError(
+            "vgamepad library is not installed. "
+            "Install with: pip install vgamepad"
+        )
+    if _gamepad is None:
+        _gamepad = vg.VX360Gamepad()
 
 
 def disconnect_gamepad() -> None:
@@ -221,7 +226,7 @@ def press_button(button: str) -> None:
     Args:
         button: Button name (e.g. "a", "b", "x", "y", "dpad_up", "left_shoulder")
     """
-    _ensure_gamepad()
+    _require_connected()
     _gamepad.press_button(button=_resolve_button(button))
     _gamepad.update()
 
@@ -232,7 +237,7 @@ def release_button(button: str) -> None:
     Args:
         button: Button name (e.g. "a", "b", "x", "y", "dpad_up", "left_shoulder")
     """
-    _ensure_gamepad()
+    _require_connected()
     _gamepad.release_button(button=_resolve_button(button))
     _gamepad.update()
 
