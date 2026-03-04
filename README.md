@@ -7,6 +7,13 @@ Rig for programmatically controlling buttons, triggers, and sticks of a virtual 
 
 Included in [talon-gamekit](https://github.com/rokubop/talon-gamekit), but can be used standalone.
 
+Supported platforms:
+- Windows (ViGEmBus)
+- Linux (uinput)
+- macOS - Not currently supported on macOS
+
+See [vgamepad](https://github.com/yannbouteiller/vgamepad) for more info.
+
 ## Usage
 
 ```python
@@ -79,9 +86,15 @@ Install using Talon's bundled pip:
 # Windows
 ~/AppData/Roaming/talon/venv/[VERSION]/Scripts/pip.bat install vgamepad
 
-# Linux/Mac
+# Linux
 ~/.talon/bin/pip install vgamepad
 ```
+
+> **Windows**: The first install will prompt you to install the [ViGEmBus](https://github.com/nefarius/ViGEmBus) driver by Nefarius Software Solutions. Accept and install it.
+>
+> **Linux**: You need access to `uinput`. See the [vgamepad Linux setup guide](https://github.com/yannbouteiller/vgamepad/blob/main/readme/linux.md) for details.
+>
+> **macOS**: Not supported. See [vgamepad](https://github.com/yannbouteiller/vgamepad) for more info.
 
 ### 2. Clone Repositories
 
