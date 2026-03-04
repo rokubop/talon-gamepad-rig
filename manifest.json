@@ -2,7 +2,7 @@
   "name": "talon-gamepad-rig",
   "title": "Gamepad Rig",
   "description": "All purpose gamepad rig with advanced stick manipulation and button handling, for Talon.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "status": "experimental",
   "namespace": "user.gamepad_rig",
   "github": "https://github.com/rokubop/talon-gamepad-rig",
