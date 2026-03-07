@@ -1,6 +1,6 @@
 # Gamepad Rig
 
-![Version](https://img.shields.io/badge/version-0.8.0-blue)
+![Version](https://img.shields.io/badge/version-0.8.1-blue)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 
 Rig for programmatically controlling buttons, triggers, and sticks of a virtual gamepad. For Talon.
@@ -75,7 +75,7 @@ See `tests/` for comprehensive examples.
 
 ### Dependencies
 
-- [**talon-rig-core**](https://github.com/rokubop/talon-rig-core) (v0.5.0+)
+- [**talon-rig-core**](https://github.com/rokubop/talon-rig-core) (v0.6.3+)
 - [**vgamepad**](https://pypi.org/project/vgamepad/) (Python package)
 
 ### 1. Install Python Packages
