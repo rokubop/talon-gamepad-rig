@@ -2,14 +2,20 @@
   "name": "talon-gamepad-rig",
   "title": "Gamepad Rig",
   "description": "All purpose gamepad rig with advanced stick manipulation and button handling, for Talon.",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "status": "experimental",
   "namespace": "user.gamepad_rig",
   "github": "https://github.com/rokubop/talon-gamepad-rig",
   "preview": "",
   "author": "Rokubop",
   "tags": [],
-  "requires": ["gamepad"],
+  "requires": [
+    "gamepad"
+  ],
+  "platforms": [
+    "windows",
+    "linux"
+  ],
   "dependencies": {
     "talon-rig-core": {
       "min_version": "0.6.3",
@@ -33,7 +39,9 @@
     }
   },
   "contributes": {
-    "tags": ["user.gamepad_rig_test"],
+    "tags": [
+      "user.gamepad_rig_test"
+    ],
     "settings": [
       "user.gamepad_rig_stick_deadzone",
       "user.gamepad_rig_trigger_deadzone"

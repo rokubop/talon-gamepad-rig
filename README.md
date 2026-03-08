@@ -1,11 +1,12 @@
 # Gamepad Rig
 
-![Version](https://img.shields.io/badge/version-0.8.2-blue)
+![Version](https://img.shields.io/badge/version-0.8.3-blue)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
+![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey)
 
 Rig for programmatically controlling buttons, triggers, and sticks of a virtual gamepad. For Talon.
 
-Included in [talon-gamekit](https://github.com/rokubop/talon-gamekit), but can be used standalone.
+Used by [talon-gamekit](https://github.com/rokubop/talon-gamekit), but can be used standalone.
 
 Supported platforms:
 - Windows (ViGEmBus)
