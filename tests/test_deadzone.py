@@ -1,19 +1,20 @@
 """Tests for discovering vgamepad/Windows deadzone and quantization behavior.
 
-Sends known values through vgamepad, reads back via gamepad tester
+Sends known values through vgamepad, reads back via internal gamepad listener
 (which receives gamepad(left_xy) events from Windows), and logs
 the round-trip results to discover deadzone thresholds and precision loss.
 """
 
-from talon import cron, actions
+from talon import cron
 from .helpers import setup, teardown
 from ..src import rig
+from . import gamepad_rig_test
 
 
 def _read_tester_stick():
-    """Read current left stick value as reported by Windows via gamepad tester"""
+    """Read current left stick value as reported by Windows via internal listener"""
     try:
-        x, y = actions.user.gamepad_tester_get_stick("left")
+        x, y = gamepad_rig_test.sticks.get("left", (0.0, 0.0))
         return x, y
     except Exception:
         return None, None
@@ -186,17 +187,17 @@ def test_quantization_precision(on_success, on_failure):
             rx, ry = _read_tester_stick()
             results.append((val, rx, ry))
             index["i"] += 1
-            cron.after("50ms", send_next)
+            cron.after("25ms", send_next)
 
-        cron.after("100ms", read_back)
+        cron.after("50ms", read_back)
 
     send_next()
 
 
 def _read_tester_trigger():
-    """Read current left trigger value as reported by Windows via gamepad tester"""
+    """Read current left trigger value as reported by Windows via internal listener"""
     try:
-        return actions.user.gamepad_tester_get_trigger("l2")
+        return gamepad_rig_test.triggers.get("l2", 0.0)
     except Exception:
         return None
 

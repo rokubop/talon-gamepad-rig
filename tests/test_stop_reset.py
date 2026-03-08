@@ -349,6 +349,7 @@ def test_left_trigger_stop_clears_layers(on_success, on_failure):
     r.left_trigger.to(0.5).run()
     r.left_trigger.offset.add(0.2).run()
     r.right_trigger.to(0.3).run()
+    r.right_trigger.offset.add(0.1).run()
 
     def do_stop():
         r.left_trigger.stop()

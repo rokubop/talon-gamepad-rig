@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 from talon import actions, cron, scope
 from ..src import gamepad_api
+from . import gamepad_rig_test
 
 from .test_stick_basic import STICK_BASIC_TESTS
 from .test_stick_over import STICK_OVER_TESTS
@@ -26,7 +27,7 @@ from .test_behaviors import BEHAVIOR_TESTS
 from .test_validation import VALIDATION_TESTS
 from .test_contracts import CONTRACTS_TESTS
 from .test_reverse import REVERSE_TESTS
-# from .test_deadzone import DEADZONE_TESTS
+from .test_deadzone import DEADZONE_TESTS
 
 TEST_GROUPS = [
     ("Stick Basic", STICK_BASIC_TESTS),
@@ -44,7 +45,7 @@ TEST_GROUPS = [
     ("Validation", VALIDATION_TESTS),
     ("Contracts", CONTRACTS_TESTS),
     ("Reverse", REVERSE_TESTS),
-    # ("Deadzone", DEADZONE_TESTS),
+    ("Deadzone", DEADZONE_TESTS),
 ]
 
 _test_runner_state = {
@@ -84,6 +85,20 @@ def _close_gamepad_tester():
         except Exception:
             pass
         _test_runner_state["opened_tester"] = False
+
+
+# =========================================================================
+# Gamepad listener integration
+# =========================================================================
+
+def _enable_listener():
+    """Enable internal gamepad listener for reading raw hardware values."""
+    gamepad_rig_test.enable()
+
+
+def _disable_listener():
+    """Disable internal gamepad listener."""
+    gamepad_rig_test.disable()
 
 
 
@@ -659,6 +674,7 @@ def toggle_test_ui(show: bool = None):
     def on_mount():
         gamepad_api.connect_gamepad()
         _open_gamepad_tester()
+        _enable_listener()
         actions.user.ui_elements_show(test_result_ui)
         actions.user.ui_elements_show(test_status_ui)
         actions.user.ui_elements_show(test_summary_ui)
@@ -668,6 +684,7 @@ def toggle_test_ui(show: bool = None):
         actions.user.ui_elements_hide(test_result_ui)
         actions.user.ui_elements_hide(test_status_ui)
         actions.user.ui_elements_hide(test_summary_ui)
+        _disable_listener()
         _close_gamepad_tester()
         gamepad_api.disconnect_gamepad()
 

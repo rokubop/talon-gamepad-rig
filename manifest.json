@@ -9,6 +9,9 @@
   "preview": "",
   "author": "Rokubop",
   "tags": [],
+  "requires": [
+    "gamepad"
+  ],
   "dependencies": {
     "talon-rig-core": {
       "min_version": "0.6.3",
@@ -32,6 +35,9 @@
     }
   },
   "contributes": {
+    "tags": [
+      "user.gamepad_rig_test"
+    ],
     "settings": [
       "user.gamepad_rig_stick_deadzone",
       "user.gamepad_rig_trigger_deadzone"
@@ -48,14 +54,13 @@
       "user.gamepad_rig_reset",
       "user.gamepad_rig_state",
       "user.gamepad_rig_stop",
+      "user.gamepad_rig_test_record",
       "user.gamepad_rig_tests",
       "user.gamepad_rig_version"
     ]
   },
   "depends": {
     "actions": [
-      "user.gamepad_tester_get_stick",
-      "user.gamepad_tester_get_trigger",
       "user.gamepad_tester_toggle",
       "user.rig_core",
       "user.ui_elements",
@@ -73,5 +78,6 @@
   "_generatorVersion": "3.2.1",
   "_generatorRequiresVersionAction": true,
   "_generatorStrictNamespace": true,
-  "_generatorFrozenFields": []
+  "_generatorFrozenFields": [],
+  "_generatorDuplicateCheck": true
 }
