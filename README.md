@@ -1,10 +1,13 @@
-# Gamepad Rig
-
-![Version](https://img.shields.io/badge/version-0.8.3-blue)
+![Version](https://img.shields.io/badge/version-0.8.4-blue)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 ![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux-lightgrey)
 
-Rig for programmatically controlling buttons, triggers, and sticks of a virtual gamepad. For Talon.
+# Gamepad Rig
+
+<table width="600"><tr>
+<td width="150"><img src="preview.svg"></td>
+<td>Rig for programmatically controlling buttons, triggers, and sticks of a virtual gamepad. For Talon.</td>
+</tr></table>
 
 Used by [talon-gamekit](https://github.com/rokubop/talon-gamekit), but can be used standalone.
 
@@ -136,3 +139,14 @@ git clone https://github.com/rokubop/talon-ui-elements
 | `user.gamepad_rig_trigger_deadzone` | `0.25` | Trigger deadzone compensation |
 
 See [DEADZONE.md](DEADZONE.md) for technical details.
+
+## Tests
+
+130+ tests serve as working examples. See the [test files](tests/) for usage patterns.
+
+Uncomment [gamepad_rig_dev.talon](gamepad_rig_dev.talon) to enable.
+
+Requires [talon-ui-elements](https://github.com/rokubop/talon-ui-elements) (v0.14.0+).
+Requires [community](https://github.com/talonhub/community) for gamepad test overlay.
+
+![Tests](tests.png)

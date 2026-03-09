@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100" width="120" height="100">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="60" cy="50" r="45" fill="url(#bgGrad)"/>
+  <path d="M55 15 L60 5 L65 15" stroke="#60a5fa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M55 85 L60 95 L65 85" stroke="#60a5fa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M15 45 L5 50 L15 55" stroke="#60a5fa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M105 45 L115 50 L105 55" stroke="#60a5fa" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M95 12 L102 5 L109 12" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6" transform="rotate(45, 102, 8)"/>
+  <path d="M95 88 L102 95 L109 88" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6" transform="rotate(-45, 102, 92)"/>
+  <path d="M11 12 L18 5 L25 12" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6" transform="rotate(-45, 18, 8)"/>
+  <path d="M11 88 L18 95 L25 88" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6" transform="rotate(45, 18, 92)"/>
+  <g transform="translate(60, 49) scale(2.5)" fill="none" stroke="#60a5fa" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="-6" x2="-2" y1="-1" y2="-1" stroke-width="1.2"/>
+    <line x1="-4" x2="-4" y1="-3" y2="1" stroke-width="1.2"/>
+    <circle cx="4.5" cy="-3" r="0.7" fill="#60a5fa" stroke="none"/>
+    <circle cx="4.5" cy="1" r="0.7" fill="#60a5fa" stroke="none"/>
+    <circle cx="2.5" cy="-1" r="0.7" fill="#60a5fa" stroke="none"/>
+    <circle cx="6.5" cy="-1" r="0.7" fill="#60a5fa" stroke="none"/>
+    <!-- Body with smooth sinusoidal notch at top -->
+    <path d="M5.32-7H3C1.5-7 0.8-5.8 0-5.8S-1.5-7-3-7H-5.32a4 4 0 0 0-3.978 3.59c-.006.052-.01.101-.017.152C-9.396-2.584-10 2.456-10 4a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1-2.172 4h4.344a2 2 0 0 1 1.414.586L5 6c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258-.007-.05-.011-.1-.017-.151A4 4 0 0 0 5.32-7z" stroke-width="1"/>
+  </g>
+</svg>
