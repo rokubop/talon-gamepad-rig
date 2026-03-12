@@ -17,20 +17,20 @@
     "linux"
   ],
   "dependencies": {
+    "community": {
+      "github": "https://github.com/talonhub/community",
+      "dev_only": true
+    },
     "talon-rig-core": {
       "min_version": "0.6.3",
       "namespace": "user.rig_core",
       "github": "https://github.com/rokubop/talon-rig-core"
-    }
-  },
-  "devDependencies": {
-    "community": {
-      "github": "https://github.com/talonhub/community"
     },
     "talon-ui-elements": {
       "min_version": "0.15.0",
       "namespace": "user.ui_elements",
-      "github": "https://github.com/rokubop/talon-ui-elements"
+      "github": "https://github.com/rokubop/talon-ui-elements",
+      "dev_only": true
     }
   },
   "pipDependencies": {
@@ -79,7 +79,7 @@
   },
   "validateDependencies": true,
   "_generator": "talon-pack",
-  "_generatorVersion": "3.2.2",
+  "_generatorVersion": "3.3.0",
   "_generatorRequiresVersionAction": true,
   "_generatorStrictNamespace": true,
   "_generatorFrozenFields": []
