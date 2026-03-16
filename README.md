@@ -150,3 +150,6 @@ Requires [talon-ui-elements](https://github.com/rokubop/talon-ui-elements) (v0.1
 Requires [community](https://github.com/talonhub/community) for gamepad test overlay.
 
 ![Tests](tests.png)
+
+## More Talon packages
+Check out my other Talon packages for UI, mouse control, input mapping, and more at [talon-hub-roku](https://github.com/rokubop/talon-hub-roku).
