@@ -79,7 +79,7 @@ See `tests/` for comprehensive examples.
 
 ### Dependencies
 
-- [**talon-rig-core**](https://github.com/rokubop/talon-rig-core) (v0.6.3+)
+- [**talon-rig-core**](https://github.com/rokubop/talon-rig-core) (v0.6.5+)
 - [**vgamepad**](https://pypi.org/project/vgamepad/) (Python package)
 
 ### 1. Install Python Packages

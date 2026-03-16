@@ -22,7 +22,7 @@
       "dev_only": true
     },
     "talon-rig-core": {
-      "min_version": "0.6.3",
+      "min_version": "0.6.5",
       "namespace": "user.rig_core",
       "github": "https://github.com/rokubop/talon-rig-core"
     },
