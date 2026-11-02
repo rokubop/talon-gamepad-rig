@@ -17,10 +17,6 @@
     "linux"
   ],
   "dependencies": {
-    "community": {
-      "github": "https://github.com/talonhub/community",
-      "dev_only": true
-    },
     "talon-rig-core": {
       "min_version": "0.6.5",
       "namespace": "user.rig_core",
@@ -65,7 +61,6 @@
   },
   "depends": {
     "actions": [
-      "user.gamepad_tester_toggle",
       "user.rig_core",
       "user.ui_elements",
       "user.ui_elements_get_state",
@@ -79,7 +74,7 @@
   },
   "validateDependencies": true,
   "_generator": "talon-pack",
-  "_generatorVersion": "3.3.0",
+  "_generatorVersion": "3.3.1",
   "_generatorRequiresVersionAction": true,
   "_generatorStrictNamespace": true,
   "_generatorFrozenFields": []

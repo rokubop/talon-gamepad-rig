@@ -1,8 +1,8 @@
 """Internal gamepad state for tests.
 
 Stores stick and trigger values received from Windows/hardware
-so deadzone tests can read back what the OS actually reports,
-without depending on community gamepad_tester actions.
+so deadzone tests can read back what the OS actually reports, and
+the tester overlay can show it.
 """
 
 from talon import Context, Module
@@ -23,6 +23,7 @@ def disable():
     sticks["right"] = (0.0, 0.0)
     triggers["l2"] = 0.0
     triggers["r2"] = 0.0
+    buttons.clear()
 
 
 sticks: dict[str, tuple[float, float]] = {
@@ -35,12 +36,16 @@ triggers: dict[str, float] = {
     "r2": 0.0,
 }
 
+buttons: dict[str, bool] = {}
+
 
 @mod.action_class
 class Actions:
     def gamepad_rig_test_record(input_type: str, id: str, x: float, y: float):
-        """Store raw hardware state for testing (stick or trigger)"""
+        """Store raw hardware state for testing (stick, trigger or button)"""
         if input_type == "stick":
             sticks[id] = (x, y)
         elif input_type == "trigger":
             triggers[id] = x
+        elif input_type == "button":
+            buttons[id] = bool(x)

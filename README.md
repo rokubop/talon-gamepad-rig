@@ -121,11 +121,9 @@ git clone https://github.com/rokubop/talon-gamepad-rig
 ### Development Dependencies
 
 Optional dependencies for development and testing:
-- [**community**](https://github.com/talonhub/community)
 - [**talon-ui-elements**](https://github.com/rokubop/talon-ui-elements) (v0.15.0+)
 
 ```sh
-git clone https://github.com/talonhub/community
 git clone https://github.com/rokubop/talon-ui-elements
 ```
 
@@ -147,7 +145,6 @@ See [DEADZONE.md](DEADZONE.md) for technical details.
 Uncomment [gamepad_rig_dev.talon](gamepad_rig_dev.talon) to enable.
 
 Requires [talon-ui-elements](https://github.com/rokubop/talon-ui-elements) (v0.14.0+).
-Requires [community](https://github.com/talonhub/community) for gamepad test overlay.
 
 ![Tests](tests.png)
 

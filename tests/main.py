@@ -8,9 +8,10 @@ import inspect
 import os
 import re
 from datetime import datetime
-from talon import actions, cron, scope
+from talon import actions, cron
 from ..src import gamepad_api
 from . import gamepad_rig_test
+from . import gamepad_tester
 
 from .test_stick_basic import STICK_BASIC_TESTS
 from .test_stick_over import STICK_OVER_TESTS
@@ -68,22 +69,15 @@ _test_runner_state = {
 
 def _open_gamepad_tester():
     """Open gamepad tester if not already open."""
-    tester_showing = "user.gamepad_tester" in (scope.get("tag") or [])
-    if not tester_showing:
-        try:
-            actions.user.gamepad_tester_toggle()
-            _test_runner_state["opened_tester"] = True
-        except Exception:
-            pass
+    if not gamepad_tester.showing():
+        gamepad_tester.show()
+        _test_runner_state["opened_tester"] = True
 
 
 def _close_gamepad_tester():
     """Close gamepad tester if we opened it."""
     if _test_runner_state["opened_tester"]:
-        try:
-            actions.user.gamepad_tester_toggle()
-        except Exception:
-            pass
+        gamepad_tester.hide()
         _test_runner_state["opened_tester"] = False
 
 
